@@ -1,91 +1,168 @@
-# Text Spammer
+# Textie
 
-A simple but visually enhanced **text spamming tool** built with .NET and Spectre.Console. It allows users to send repeated messages automatically to any text input field (such as a chat window).
+A Windows text automation tool built with .NET that allows you to send repeated messages to any application.
+
+[![.NET](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/)
+[![Windows](https://img.shields.io/badge/OS-Windows-blue.svg)](https://www.microsoft.com/windows)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## Features
 
-- **Global Keyboard Hook**: Listens for `Enter` key (to start spamming) and `Escape` key (to stop spamming) presses globally using Windows API.
-- **Rich Console UI**: Uses `Spectre.Console` for interactive prompts, instructions, progress visualization, and a visually appealing user experience.
-- **Customizable Input**: Allows full configuration of the message to spam, the number of repetitions, and the delay between each message in milliseconds.
-- **Multithreaded Execution**: Runs the spamming process in a background thread to ensure the console UI remains responsive and interactive even during active spamming.
-- **Windows Input Simulation (via WindowsInput Library)**: Leverages the `WindowsInput` library (specifically `InputSimulator`) to accurately simulate keyboard input events on Windows.
+- **Global keyboard hooks** - Start/stop with Enter/Escape keys from anywhere
+- **Input simulation** - Sends text to any focused Windows application
+- **Configurable timing** - Control delay between messages (0ms to 60 seconds)
+- **Progress tracking** - Real-time progress display with cancellation support
+- **Input validation** - Comprehensive validation with helpful feedback
+- **Configuration management** - Remembers settings between runs
 
-## How It Works
+## Quick Start
 
-1. Run the program using `dotnet run`.
-2. The program will prompt you via `Spectre.Console` to enter:
-    - The message you wish to spam.
-    - The number of times you want to send the message.
-    - The delay in milliseconds between each message.
-3. Carefully read the instructions presented in the bordered panel on the console.
-4. Switch focus to the application where you intend to spam text (e.g., a chat window, text document, etc.). **Ensure the target application is focused.**
-5. **Press Enter** on your keyboard to initiate the spamming process with the configured settings.
-6. A progress bar, powered by `Spectre.Console`, will visually display the spamming progress.
-7. **Press Escape** at any moment to immediately halt the spamming execution.
+1. **Prerequisites**: Windows 10/11 with .NET 9.0 runtime
+2. **Clone and run**:
 
----
+   ```bash
+   git clone https://github.com/yourusername/textie.git
+   cd textie
+   dotnet run
+   ```
 
-## Installation & Setup
+3. **Configure** your message, repetition count, and timing
+4. **Focus** the target application where you want to send text
+5. **Press Enter** to start, **Escape** to stop
 
-### Prerequisites
+## Usage
 
-- **Windows OS** (Required as the program utilizes Windows API for global keyboard hooks and relies on the `WindowsInput` library, which is Windows-specific for input simulation).
-- **.NET SDK 7.0** (or later) - Ensure you have the .NET SDK installed on your system.
+### Basic Operation
 
-### Steps to Build & Run
+1. Run the application
+2. Enter your message text
+3. Set number of repetitions (1-10,000)
+4. Choose timing interval or set custom delay
+5. Review configuration and confirm
+6. Switch to target application
+7. Press Enter to begin automation
 
-1. **Clone the Repository**
+### Timing Options
 
-    ```sh
-    git clone https://github.com/renbkna/text-spammer
-    cd text-spammer
-    ```
+- **Instant (0ms)** - No delay between messages
+- **Rapid (50ms)** - Fast automation for responsive apps
+- **Standard (100ms)** - Good balance for most use cases
+- **Moderate (500ms)** - Safer for slower applications
+- **Deliberate (1000ms)** - Very conservative timing
+- **Custom** - Specify exact millisecond delay
 
-2. **Run the Application**
+### Safety Features
 
-    Open your terminal or command prompt within the `text-spammer` directory and execute:
+- Automatic confirmation prompts for large operations
+- Real-time validation with impact assessment
+- Emergency stop with Escape key
+- Input sanitization and length limits
 
-    ```sh
-    dotnet run
-    ```
+## Architecture
 
-    This command will handle dependency restoration, compilation, and execution of the application in one step.
+The application uses a modular architecture with clear separation of concerns:
 
----
+```
+├── Program.cs                    # Application entry point
+└── Core/
+    ├── TextieApplication.cs      # Main application coordinator
+    ├── Configuration/            # Settings and validation
+    ├── UI/                       # Console interface
+    ├── Input/                    # Keyboard hook management
+    └── Spammer/                  # Text automation engine
+```
 
-## Usage Instructions
+### Key Components
 
-1. Launch the **Text Spammer** application by running `dotnet run` in the project directory.
-2. Follow the interactive prompts in the console to input your desired spam message, the number of times to repeat it, and the delay between messages.
-3. Bring the application where you want to spam text into focus (make sure it's the active window).
-4. **Press Enter** to begin the automated text spamming.
-5. **Press Escape** at any point if you need to stop the spamming immediately.
+- **Configuration Management** - Type-safe settings with validation
+- **User Interface** - Professional console UI using Spectre.Console
+- **Global Input Handling** - Windows API keyboard hooks
+- **Text Automation Engine** - Multi-threaded message sending with progress tracking
 
----
+## Development
 
-## Known Issues & Troubleshooting
+### Building from Source
 
-- **Keyboard hook not functioning:** If the program does not respond to the Enter or Escape keys, try **re-running the terminal or command prompt as an administrator**. Global keyboard hooks often require elevated privileges to function correctly.
-- **Text spam not appearing in certain applications:** Some applications, particularly games or applications with robust anti-automation or anti-cheat mechanisms, may block simulated keyboard inputs from external programs. This includes tools like Text Spammer that use `WindowsInput`.  For such cases, consider exploring more advanced input simulation techniques like direct WinAPI `SendInput` or libraries like `InputSimulatorPlus` (though compatibility is never guaranteed, and some applications are intentionally designed to resist any form of automated input).
-- **Windows OS Dependency:** This application is built specifically for Windows and relies on Windows-specific APIs and libraries. It is **not cross-platform** and will not run on other operating systems without significant modifications.
+```bash
+git clone https://github.com/yourusername/textie.git
+cd textie
+dotnet build
+dotnet run
+```
 
----
+### Project Structure
 
-## Legal Disclaimer
+- **Clean Architecture** - Modular design with dependency injection
+- **Event-Driven** - Loose coupling between components
+- **Async/Await** - Non-blocking operations throughout
+- **Resource Management** - Proper cleanup and disposal patterns
 
-This software is provided for **educational and testing purposes exclusively**. Any misuse of this program, including but not limited to spamming, harassment, or violation of terms of service of any online platform or application, is **strictly prohibited and is the sole responsibility of the user**. The developers are not liable for any consequences arising from inappropriate or illegal use of this tool.
+### Dependencies
 
----
+- [Spectre.Console](https://spectreconsole.net/) - Rich console applications
+- [InputSimulatorPlus](https://github.com/GregsStack/InputSimulatorPlus) - Windows input simulation
 
-## Future Improvements
+## Configuration
 
-- Investigate and potentially implement more robust and cross-platform compatible input simulation methods (acknowledging that true cross-platform global input simulation is inherently complex).
-- Add functionality for randomized delays between messages to simulate more human-like typing patterns.
-- Implement mechanisms to prevent the accidental or intentional running of multiple instances of the application simultaneously.
-- (Potentially) Explore developing a Graphical User Interface (GUI) version in the future, although the current focus is on refining the console-based experience.
+Settings are validated in real-time with helpful feedback:
 
----
+| Setting | Range | Description |
+|---------|-------|-------------|
+| Message | 1-1000 chars | Text to send to target application |
+| Count | 1-10,000 | Number of times to repeat the message |
+| Delay | 0-60,000ms | Pause between each message |
+
+Large operations (100+ messages or fast timing) require confirmation.
+
+## Troubleshooting
+
+**Keyboard hooks not working?**
+
+- Try running as Administrator
+- Some security software may block low-level hooks
+
+**Text not appearing in target app?**
+
+- Ensure the target application has focus
+- Some games/protected apps may block simulated input
+- Try increasing the delay between messages
+
+**Application hangs or crashes?**
+
+- Use Escape key to emergency stop
+- Restart the application if needed
+- Check Windows Event Viewer for error details
+
+## Legal Notice
+
+**Educational and Testing Use Only**
+
+This software is intended for educational purposes, automation testing, and productivity enhancement. Users are responsible for complying with:
+
+- Target application terms of service
+- Local laws and regulations
+- Platform-specific automation policies
+
+Misuse including harassment, spam, or violation of service terms is prohibited.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+
+### Areas for Improvement
+
+- Cross-platform support
+- GUI interface option
+- Advanced scripting capabilities
+- Plugin system
+- Enhanced targeting options
 
 ## License
 
-This project is distributed under the **MIT License**. Refer to the `LICENSE` file for complete license details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- **Spectre.Console** team for the excellent console framework
+- **InputSimulatorPlus** contributors for reliable input simulation
+- The .NET community for tools and guidance
