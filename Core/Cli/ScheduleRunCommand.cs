@@ -56,22 +56,22 @@ namespace Textie.Core.Cli
                 var profile = profiles.FirstOrDefault(p => string.Equals(p.Name, schedule.ProfileName, StringComparison.OrdinalIgnoreCase));
                 if (profile == null)
                 {
-                    AnsiConsole.MarkupLine($"[red]Profile '{schedule.ProfileName}' not found for schedule '{schedule.Name}'.[/]");
+                    AnsiConsole.MarkupLine($"[red]Profile '{Markup.Escape(schedule.ProfileName)}' not found for schedule '{Markup.Escape(schedule.Name)}'.[/]");
                     continue;
                 }
 
-                AnsiConsole.MarkupLine($"[cyan]Running schedule[/] {schedule.Name} -> profile '{schedule.ProfileName}'.");
+                AnsiConsole.MarkupLine($"[cyan]Running schedule[/] {Markup.Escape(schedule.Name)} -> profile '{Markup.Escape(schedule.ProfileName)}'.");
                 try
                 {
                     await AnsiConsole.Progress()
                         .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new SpinnerColumn())
                         .StartAsync(async ctx =>
                         {
-                            var task = ctx.AddTask($"[cyan]{schedule.Name}[/]", maxValue: profile.Configuration.Count);
+                            var task = ctx.AddTask(Markup.Escape(schedule.Name), maxValue: profile.Configuration.Count);
                             void ProgressHandler(object? sender, SpamProgressEventArgs args)
                             {
                                 task.Value = args.Current;
-                                task.Description = $"[cyan]{schedule.Name}[/] {args.Current}/{args.Total}";
+                                task.Description = $"{Markup.Escape(schedule.Name)} {args.Current}/{args.Total}";
                             }
 
                             _spammerEngine.ProgressChanged += ProgressHandler;

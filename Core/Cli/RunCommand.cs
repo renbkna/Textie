@@ -82,7 +82,7 @@ namespace Textie.Core.Cli
 
                         void FailureHandler(object? sender, Exception ex)
                         {
-                            AnsiConsole.MarkupLine($"[red]Error:[/] {ex.Message}");
+                            AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
                         }
 
                         _spammerEngine.ProgressChanged += ProgressHandler;
@@ -122,7 +122,7 @@ namespace Textie.Core.Cli
                     return profile.Configuration.Clone();
                 }
 
-                AnsiConsole.MarkupLine($"[yellow]Profile '{settings.Profile}' not found. Using current settings.[/]");
+                AnsiConsole.MarkupLine($"[yellow]Profile '{Markup.Escape(settings.Profile)}' not found. Using current settings.[/]");
             }
 
             return _configurationManager.CurrentConfiguration;
