@@ -16,16 +16,23 @@ namespace Textie.Core.Input
 
         private LowLevelKeyboardProc? _hookProc;
         private IntPtr _hookId = IntPtr.Zero;
+        private Thread? _hookThread;
+        private uint _hookThreadId;
+        private volatile bool _stopRequested;
         private TaskCompletionSource<HotkeyAction>? _signalSource;
         private bool _disposed;
 
-        public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task InitializeAsync(CancellationToken cancellationToken)
+        {
+            EnsureHookThreadStarted();
+            return Task.CompletedTask;
+        }
 
         public Task<HotkeyAction> WaitForNextAsync(CancellationToken cancellationToken)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(GlobalKeyboardHook));
 
-            EnsureHookInstalled();
+            EnsureHookThreadStarted();
 
             var source = new TaskCompletionSource<HotkeyAction>(TaskCreationOptions.RunContinuationsAsynchronously);
             var registration = cancellationToken.Register(() => source.TrySetCanceled(cancellationToken));
@@ -45,7 +52,6 @@ namespace Textie.Core.Input
                 {
                     tokenRegistration.Dispose();
                     Interlocked.CompareExchange(ref _signalSource, null, completionSource);
-                    UninstallHook();
                 }
             }
         }
@@ -98,6 +104,55 @@ namespace Textie.Core.Input
                 0);
         }
 
+        private void EnsureHookThreadStarted()
+        {
+            if (_hookThread != null)
+            {
+                return;
+            }
+
+            _stopRequested = false;
+            _hookThread = new Thread(HookThreadProc)
+            {
+                IsBackground = true,
+                Name = "Textie.KeyboardHook"
+            };
+            _hookThread.Start();
+        }
+
+        private void HookThreadProc()
+        {
+            _hookThreadId = GetCurrentThreadId();
+            _hookProc ??= HookCallback;
+
+            _hookId = SetHook(_hookProc);
+            if (_hookId == IntPtr.Zero)
+            {
+                return;
+            }
+
+            try
+            {
+                while (!_stopRequested)
+                {
+                    if (GetMessage(out var msg, IntPtr.Zero, 0, 0) <= 0)
+                    {
+                        break; // WM_QUIT or error
+                    }
+                    TranslateMessage(ref msg);
+                    DispatchMessage(ref msg);
+                }
+            }
+            finally
+            {
+                var handle = Interlocked.Exchange(ref _hookId, IntPtr.Zero);
+                if (handle != IntPtr.Zero)
+                {
+                    UnhookWindowsHookEx(handle);
+                }
+            }
+        }
+
         private void EnsureHookInstalled()
         {
             if (_hookId != IntPtr.Zero)
@@ -126,7 +181,20 @@ namespace Textie.Core.Input
         {
             if (_disposed) return;
 
-            UninstallHook();
+            _stopRequested = true;
+            if (_hookThreadId != 0)
+            {
+                PostThreadMessage(_hookThreadId, WmQuit, IntPtr.Zero, IntPtr.Zero);
+            }
+            try
+            {
+                _hookThread?.Join(TimeSpan.FromSeconds(1));
+            }
+            catch
+            {
+                // ignore
+            }
+
             _signalSource?.TrySetCanceled();
             _signalSource = null;
             _disposed = true;
@@ -145,5 +213,40 @@ namespace Textie.Core.Input
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+        [DllImport("user32.dll")]
+        private static extern bool TranslateMessage(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        private const uint WmQuit = 0x0012;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MSG
+        {
+            public IntPtr hwnd;
+            public uint message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public uint time;
+            public POINT pt;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int x;
+            public int y;
+        }
     }
 }
