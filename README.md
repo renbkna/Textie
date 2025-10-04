@@ -1,168 +1,163 @@
 # Textie
 
-A Windows text automation tool built with .NET that allows you to send repeated messages to any application.
+Windows-first text automation for power users and QA engineers. Textie delivers an advanced Spectre.Console terminal experience, global hotkeys, templated messaging, profiles, and a CLI/scheduler for unattended runs.
 
 [![.NET](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/)
 [![Windows](https://img.shields.io/badge/OS-Windows-blue.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## Features
+## Highlights
 
-- **Global keyboard hooks** - Start/stop with Enter/Escape keys from anywhere
-- **Input simulation** - Sends text to any focused Windows application
-- **Configurable timing** - Control delay between messages (0ms to 60 seconds)
-- **Progress tracking** - Real-time progress display with cancellation support
-- **Input validation** - Comprehensive validation with helpful feedback
-- **Configuration management** - Remembers settings between runs
+- **Premium Spectre TUI** – Figlet banner, stepper wizard, live dashboards, and run summaries.
+- **Smart configuration wizard** – Profiles, templating preview, jitter, strategies, and focus lock in one guided flow.
+- **Advanced automation engine** – Async pipeline, jittered delays, per-character typing, templated payloads, optional submit key.
+- **Global hotkeys** – ENTER to start, ESC to cancel, backed by a signal-based low-level hook (no busy loops).
+- **Profiles & persistence** – Settings and profiles stored under `%AppData%/Textie`; tolerant JSON persistence.
+- **CLI commands** – Headless `run`, `dry-run`, `profile` management, and `schedule` commands using Spectre.Console.Cli.
+- **Scheduling** – Cron-powered scheduled runs (via `NCrontab`) persisted alongside profiles.
+- **Telemetry-friendly logging** – Microsoft.Extensions.Logging with console provider; consistent error surfacing in UI.
+- **Unit tests** – Core engine behaviour covered with xUnit (requires Windows Desktop runtime locally).
 
 ## Quick Start
 
-1. **Prerequisites**: Windows 10/11 with .NET 9.0 runtime
-2. **Clone and run**:
-
-   ```bash
-   git clone https://github.com/yourusername/textie.git
-   cd textie
-   dotnet run
-   ```
-
-3. **Configure** your message, repetition count, and timing
-4. **Focus** the target application where you want to send text
-5. **Press Enter** to start, **Escape** to stop
-
-## Usage
-
-### Basic Operation
-
-1. Run the application
-2. Enter your message text
-3. Set number of repetitions (1-10,000)
-4. Choose timing interval or set custom delay
-5. Review configuration and confirm
-6. Switch to target application
-7. Press Enter to begin automation
-
-### Timing Options
-
-- **Instant (0ms)** - No delay between messages
-- **Rapid (50ms)** - Fast automation for responsive apps
-- **Standard (100ms)** - Good balance for most use cases
-- **Moderate (500ms)** - Safer for slower applications
-- **Deliberate (1000ms)** - Very conservative timing
-- **Custom** - Specify exact millisecond delay
-
-### Safety Features
-
-- Automatic confirmation prompts for large operations
-- Real-time validation with impact assessment
-- Emergency stop with Escape key
-- Input sanitization and length limits
-
-## Architecture
-
-The application uses a modular architecture with clear separation of concerns:
-
-```
-├── Program.cs                    # Application entry point
-└── Core/
-    ├── TextieApplication.cs      # Main application coordinator
-    ├── Configuration/            # Settings and validation
-    ├── UI/                       # Console interface
-    ├── Input/                    # Keyboard hook management
-    └── Spammer/                  # Text automation engine
-```
-
-### Key Components
-
-- **Configuration Management** - Type-safe settings with validation
-- **User Interface** - Professional console UI using Spectre.Console
-- **Global Input Handling** - Windows API keyboard hooks
-- **Text Automation Engine** - Multi-threaded message sending with progress tracking
-
-## Development
-
-### Building from Source
-
 ```bash
+# clone
 git clone https://github.com/yourusername/textie.git
 cd textie
+
+# restore + build (Windows)
+dotnet restore
 dotnet build
+
+# run interactive UI
 dotnet run
 ```
 
-### Project Structure
+> **Note:** The project targets `net9.0-windows` and depends on `Microsoft.WindowsDesktop.App`. Build and runtime require Windows or a Windows-targeting SDK installation.
 
-- **Clean Architecture** - Modular design with dependency injection
-- **Event-Driven** - Loose coupling between components
-- **Async/Await** - Non-blocking operations throughout
-- **Resource Management** - Proper cleanup and disposal patterns
+## Interactive Experience
 
-### Dependencies
+1. **Wizard** – Launch presents a six-step configuration stepper (Message → Count → Delay → Strategy → Advanced → Review). Warnings are non-blocking and surfaced inline.
+2. **Profiles** – Load existing profiles, reset to defaults, or save new ones during the review step.
+3. **Dashboard** – After confirming, the waiting dashboard displays active configuration, profiles, and hotkey hints.
+4. **Automation run** – ENTER to start. Live progress bars (Spectre progress columns), templated status, and cancellation via ESC.
+5. **Summary** – Completion panel with metrics (messages, duration, errors, cancellation state) followed by next-action prompt.
 
-- [Spectre.Console](https://spectreconsole.net/) - Rich console applications
-- [InputSimulatorPlus](https://github.com/GregsStack/InputSimulatorPlus) - Windows input simulation
+## CLI Commands
 
-## Configuration
+Textie ships with a Spectre.Console.Cli command surface. To view help:
 
-Settings are validated in real-time with helpful feedback:
+```bash
+dotnet run -- --help
+```
 
-| Setting | Range | Description |
-|---------|-------|-------------|
-| Message | 1-1000 chars | Text to send to target application |
-| Count | 1-10,000 | Number of times to repeat the message |
-| Delay | 0-60,000ms | Pause between each message |
+Key commands:
 
-Large operations (100+ messages or fast timing) require confirmation.
+| Command | Description |
+|---------|-------------|
+| `run [options]` | Headless run with optional overrides (`--profile`, `--message`, `--count`, `--delay`, `--focus-delay`, `--preview`). |
+| `dry-run [--samples N]` | Render templated messages without sending input. |
+| `profile list` | Show saved profiles with timestamps. |
+| `profile save --name <NAME>` | Persist the current configuration as a profile (and optional notes). |
+| `profile delete --name <NAME>` | Remove a stored profile. |
+| `schedule list` | Display scheduled runs, target profiles, cron expressions, and next occurrence. |
+| `schedule add --name <NAME> --profile <PROFILE> --cron "0 8 * * *"` | Create/update a scheduled run (optionally `--disabled`). |
+| `schedule remove --name <NAME>` | Delete a scheduled run. |
+| `schedule run` | Execute all due schedules immediately (updates next-run timestamps). |
+
+## Automation Strategies & Options
+
+- **Strategies** – `SendTextAndEnter`, `SendTextOnly`, `TypePerCharacter`.
+- **Templating** – SmartFormat-based placeholders (`{index}`, `{total}`, `{timestamp}`, `{guid}`, `{random}`, `{rand}`).
+- **Timing** – Base delay (0–120,000ms) with optional jitter (0–100%) and per-character delays for humanized typing.
+- **Submit Key** – Toggle Enter submission regardless of strategy.
+- **Focus control** – Optional target window title + focus lock reminder before and during runs.
+
+## Configuration & Persistence
+
+- Configuration file: `%AppData%/Textie/settings.json`
+- Profiles file: `%AppData%/Textie/profiles.json`
+- Schedules file: `%AppData%/Textie/schedules.json`
+
+Files are written with indentation, ignore defaults on failure, and are resilient to missing/corrupt data.
+
+## Architecture Overview
+
+```
+├── Program.cs                         # Host builder, DI, CLI wiring
+├── Core/
+│   ├── Abstractions/                 # Interfaces (hotkeys, template, config)
+│   ├── Configuration/                # Configuration models + manager
+│   ├── Input/                        # Global keyboard hook implementing IHotkeyService
+│   ├── Infrastructure/               # Config store, InputSimulator adapter, Spectre registrar
+│   ├── Scheduling/                   # Schedule manager and models (NCrontab)
+│   ├── Spammer/                      # Engine, progress events, summaries, templating context
+│   ├── Templates/                    # SmartFormat renderer implementation
+│   └── UI/                           # IUserInterface + Spectre implementation (wizard, dashboard, run view)
+├── Core/Cli/                         # CLI command handlers (run, dry-run, profile, schedule)
+└── Tests/Textie.Tests/               # xUnit project covering engine behaviour
+```
+
+### Dependency Graph
+
+- **TextieApplication** orchestrates configuration manager, UI, hotkeys, engine, and logging.
+- **ConfigurationManager** & **ConfigurationStore** persist settings/profiles/schedules via async JSON.
+- **TextSpammerEngine** consumes `ITextAutomationService` (InputSimulatorPlus) and `ITemplateRenderer` to drive automation with cancellation and jitter.
+- **UserInterface** (Spectre) renders wizard, dashboards, and progress; hosts CLI progress output for headless runs via shared engine events.
+- **Hotkey Service** uses Win32 low-level hook with TaskCompletionSource signalling (no polling loops).
+- **CLI** commands reuse DI-registered services for headless operations and scheduling maintenance.
+
+## Testing
+
+```bash
+# Build everything
+dotnet build textie.sln
+
+# Run tests (requires Microsoft.WindowsDesktop runtime on Windows)
+dotnet test Tests/Textie.Tests/Textie.Tests.csproj
+```
+
+> In non-Windows environments the WindowsDesktop runtime is unavailable; tests will fail to launch the xUnit testhost. Run tests on Windows or install the Windows Desktop SDK.
+
+## Dependencies
+
+- [Spectre.Console 0.51.1](https://spectreconsole.net/) (core TUI)
+- [Spectre.Console.Cli 0.51.1](https://spectreconsole.net/) (CLI surface)
+- [Spectre.Console.ImageSharp 0.51.1](https://spectreconsole.net/) (optional branding)
+- [InputSimulatorPlus 1.0.7](https://github.com/GregsStack/InputSimulatorPlus)
+- [Microsoft.Extensions.Configuration.Json 9.0.9]
+- [Microsoft.Extensions.DependencyInjection 9.0.9]
+- [Microsoft.Extensions.Hosting 9.0.9]
+- [Microsoft.Extensions.Logging.Console 9.0.9]
+- [SmartFormat 3.6.1]
+- [NCrontab 3.4.0]
+- [Vanara.PInvoke.User32 4.2.1]
+- [xUnit 2.9.2] (tests)
 
 ## Troubleshooting
 
-**Keyboard hooks not working?**
-
-- Try running as Administrator
-- Some security software may block low-level hooks
-
-**Text not appearing in target app?**
-
-- Ensure the target application has focus
-- Some games/protected apps may block simulated input
-- Try increasing the delay between messages
-
-**Application hangs or crashes?**
-
-- Use Escape key to emergency stop
-- Restart the application if needed
-- Check Windows Event Viewer for error details
-
-## Legal Notice
-
-**Educational and Testing Use Only**
-
-This software is intended for educational purposes, automation testing, and productivity enhancement. Users are responsible for complying with:
-
-- Target application terms of service
-- Local laws and regulations
-- Platform-specific automation policies
-
-Misuse including harassment, spam, or violation of service terms is prohibited.
+| Symptom | Resolution |
+|---------|------------|
+| Keyboard hotkeys ignored | Run as Administrator, ensure no security software blocks low-level hooks. |
+| No input delivered | Confirm target window focus; increase delays; disable focus lock if target changes title during run. |
+| Scheduler not executing | `schedule list` to confirm cron and next run; ensure schedule is enabled; run CLI with `dotnet run -- schedule list`. |
+| CLI fails on Linux/macOS | CLI is Windows-focused; ensure Windows Desktop runtime present. |
+| Tests fail to run | Install .NET 9 Windows Desktop runtime or run tests on Windows environment. |
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
-
-### Areas for Improvement
-
-- Cross-platform support
-- GUI interface option
-- Advanced scripting capabilities
-- Plugin system
-- Enhanced targeting options
+1. Fork and clone the repository.
+2. Create a feature branch.
+3. Run `dotnet build` (and `dotnet test` on Windows) before submitting PRs.
+4. Describe CLI/UX changes in PR description and update README if necessary.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Textie is released under the [MIT License](LICENSE).
 
-## Acknowledgments
+## Acknowledgements
 
-- **Spectre.Console** team for the excellent console framework
-- **InputSimulatorPlus** contributors for reliable input simulation
-- The .NET community for tools and guidance
+- Spectre.Console team for an exceptional terminal toolkit.
+- InputSimulatorPlus contributors for reliable automation primitives.
+- Vanara for modern P/Invoke wrappers.
+- The wider .NET community for tooling and inspiration.
