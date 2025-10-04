@@ -1,419 +1,583 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Spectre.Console;
 using Textie.Core.Configuration;
+using Textie.Core.Spammer;
 
 namespace Textie.Core.UI
 {
-    public class UserInterface
+    public class UserInterface : IUserInterface
     {
-        private const string AppTitle = "TEXTIE";
-        private const string AppSubtitle = "Professional Text Automation Tool";
+        private readonly UiTheme _theme = new();
 
-        public void ShowWelcome()
+        public void Initialize()
         {
             AnsiConsole.Clear();
-
-            var welcomePanel = new Panel(
-                new Markup($"[bold cyan]{AppTitle}[/]\n[italic grey70]{AppSubtitle}[/]\n\n" +
-                          "[bold white]Advanced text automation with intelligent control.[/]\n" +
-                          "[grey70]Engineered for productivity and precision.[/]"))
-                .Header("Welcome")
-                .Border(BoxBorder.Rounded)
-                .BorderColor(Color.Cyan1)
-                .Padding(2, 1);
-
-            AnsiConsole.Write(welcomePanel);
+            var header = new FigletText("TEXTIE")
+                .Color(_theme.BrandPrimary)
+                .Centered();
+            AnsiConsole.Write(header);
+            AnsiConsole.Write(new Rule("[grey53]Text Automation[/]").Centered());
             AnsiConsole.WriteLine();
         }
 
-        public Task<SpamConfiguration> CollectConfigurationAsync(SpamConfiguration currentConfig)
+        public Task<ConfigurationFlowResult> RunConfigurationWizardAsync(SpamConfiguration current, IReadOnlyList<SpamProfile> profiles, CancellationToken cancellationToken)
         {
-            var configPanel = new Panel("[bold blue]Configuration Setup[/]")
-                .Header("Settings")
-                .Border(BoxBorder.Rounded)
-                .BorderColor(Color.Blue)
-                .Padding(1, 0);
+            var working = current.Clone();
+            SpamProfile? selectedProfile = null;
+            bool saveProfile = false;
+            string? profileName = null;
 
-            AnsiConsole.Write(configPanel);
-            AnsiConsole.WriteLine();
-
-            var config = new SpamConfiguration();
-
-            // === MESSAGE INPUT WITH ADVANCED VALIDATION ===
-            AnsiConsole.MarkupLine("[bold white]Step 1:[/] [cyan]Message Configuration[/]");
-            AnsiConsole.WriteLine();
-
-            config.Message = AnsiConsole.Prompt(
-                new TextPrompt<string>("[bold green]Enter your message text:[/]")
-                    .PromptStyle("green")
-                    .DefaultValue(string.IsNullOrEmpty(currentConfig.Message) ? "Hello World" : currentConfig.Message)
-                    .DefaultValueStyle("dim")
-                    .ValidationErrorMessage("[red]Invalid input - please check the requirements below[/]")
-                    .Validate(msg => ValidateMessage(msg)));
-
-            // Show message validation result
-            DisplayMessageValidationInfo(config.Message);
-            AnsiConsole.WriteLine();
-
-            // === REPETITION COUNT WITH SMART VALIDATION ===
-            AnsiConsole.MarkupLine("[bold white]Step 2:[/] [cyan]Repetition Settings[/]");
-            AnsiConsole.WriteLine();
-
-            config.Count = AnsiConsole.Prompt(
-                new TextPrompt<int>("[bold yellow]Number of repetitions:[/]")
-                    .PromptStyle("yellow")
-                    .DefaultValue(currentConfig.Count > 0 ? currentConfig.Count : 5)
-                    .DefaultValueStyle("dim")
-                    .ValidationErrorMessage("[red]Invalid count - please enter a number between 1 and 10,000[/]")
-                    .Validate(count => ValidateCount(count)));
-
-            // Show repetition impact
-            DisplayCountValidationInfo(config.Count);
-            AnsiConsole.WriteLine();
-
-            // === ENHANCED DELAY SELECTION WITH CLEAR FEEDBACK ===
-            AnsiConsole.MarkupLine("[bold white]Step 3:[/] [cyan]Timing Configuration[/]");
-            AnsiConsole.WriteLine();
-
-            // Show delay selection with descriptions
-            var delayChoices = new[]
+            if (profiles.Count > 0)
             {
-                "Instant (0ms) - Maximum speed",
-                "Rapid (50ms) - Fast automation",
-                "Standard (100ms) - Balanced timing",
-                "Moderate (500ms) - Deliberate pace",
-                "Deliberate (1000ms) - Slow and careful",
-                "Custom timing - Specify exact delay"
-            };
+                var profileChoice = AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title("[bold]Start from[/]")
+                        .AddChoices("Current settings", "Select profile", "Reset to defaults", "Cancel setup"));
 
-            var delayChoice = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("[bold cyan]Select message interval:[/]")
-                    .PageSize(7)
-                    .MoreChoicesText("[grey50]Navigate with arrow keys[/]")
-                    .AddChoices(delayChoices));
-
-            // Parse delay choice and handle custom input
-            config.DelayMilliseconds = ExtractDelayFromChoice(delayChoice, currentConfig.DelayMilliseconds);
-
-            // Show timing impact analysis
-            DisplayTimingValidationInfo(config);
-            AnsiConsole.WriteLine();
-
-            // === CONFIGURATION CONFIRMATION ===
-            AnsiConsole.MarkupLine("[bold white]Step 4:[/] [cyan]Review & Confirm[/]");
-            AnsiConsole.WriteLine();
-
-            ShowEnhancedConfigurationSummary(config);
-
-            // Final confirmation for large operations
-            if (RequiresConfirmation(config))
-            {
-                var confirmed = AnsiConsole.Confirm(
-                    $"[yellow]This will send [bold]{config.Count:N0}[/] messages. Continue?[/]",
-                    defaultValue: false);
-
-                if (!confirmed)
+                if (profileChoice == "Select profile")
                 {
-                    AnsiConsole.MarkupLine("[yellow]Configuration cancelled. Returning to main menu.[/]");
-                    return Task.FromResult(new SpamConfiguration()); // Return empty config to signal cancellation
+                    selectedProfile = PromptForProfile(profiles);
+                    if (selectedProfile != null)
+                    {
+                        working = selectedProfile.Configuration.Clone();
+                    }
+                }
+                else if (profileChoice == "Reset to defaults")
+                {
+                    working = new SpamConfiguration();
+                }
+                else if (profileChoice == "Cancel setup")
+                {
+                    return Task.FromResult(new ConfigurationFlowResult(true, current, null, false, null));
                 }
             }
 
-            return Task.FromResult(config);
+            int stepIndex = 0;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                RenderStepper(stepIndex, working, selectedProfile);
+
+                var nav = stepIndex switch
+                {
+                    0 => ConfigureMessage(working),
+                    1 => ConfigureCount(working),
+                    2 => ConfigureDelay(working),
+                    3 => ConfigureStrategy(working),
+                    4 => ConfigureAdvanced(working),
+                    5 => ReviewConfiguration(working, out saveProfile, out profileName),
+                    _ => WizardNavigation.Complete
+                };
+
+                if (nav == WizardNavigation.Cancel)
+                {
+                    return Task.FromResult(new ConfigurationFlowResult(true, current, null, false, null));
+                }
+
+                if (nav == WizardNavigation.Back)
+                {
+                    stepIndex = Math.Max(0, stepIndex - 1);
+                    continue;
+                }
+
+                stepIndex++;
+
+                if (stepIndex > 5)
+                {
+                    break;
+                }
+            }
+
+            return Task.FromResult(new ConfigurationFlowResult(false, working.Clone(), selectedProfile, saveProfile, profileName));
         }
 
-        // === VALIDATION HELPERS ===
-
-        private ValidationResult ValidateMessage(string message)
+        public Task ShowWaitingDashboardAsync(SpamConfiguration configuration, IReadOnlyList<SpamProfile> profiles, CancellationToken cancellationToken)
         {
+            var layout = new Layout("root")
+                .SplitRows(
+                    new Layout("instructions").Size(8),
+                    new Layout("details"));
+
+            layout["instructions"].Update(BuildInstructionPanel(configuration));
+
+            var detailLayout = new Layout("detail-root")
+                .SplitColumns(
+                    new Layout("config").Ratio(2),
+                    new Layout("profiles").Ratio(1));
+
+            detailLayout["config"].Update(BuildConfigurationSummary(configuration));
+            detailLayout["profiles"].Update(BuildProfilesPanel(profiles));
+
+            layout["details"].Update(detailLayout);
+
+            AnsiConsole.Write(layout);
+            AnsiConsole.WriteLine();
+            return Task.CompletedTask;
+        }
+
+        public async Task<SpamRunSummary?> RunAutomationAsync(SpamConfiguration configuration, TextSpammerEngine engine, Func<CancellationToken, Task<SpamRunSummary?>> runCallback, CancellationToken cancellationToken)
+        {
+            SpamRunSummary? summary = null;
+            Exception? failure = null;
+
+            ProgressTask? progressTask = null;
+
+            void OnProgress(object? sender, SpamProgressEventArgs e)
+            {
+                if (progressTask != null)
+                {
+                    progressTask.Value = e.Current;
+                    progressTask.Description = $"[cyan]Sending[/] {e.Current}/{e.Total} [{e.Status}]";
+                }
+            }
+
+            void OnFailure(object? sender, Exception ex)
+            {
+                failure = ex;
+            }
+
+            engine.ProgressChanged += OnProgress;
+            engine.SpamFailed += OnFailure;
+
+            try
+            {
+                await AnsiConsole.Progress()
+                    .Columns(
+                        new TaskDescriptionColumn(),
+                        new ProgressBarColumn(),
+                        new PercentageColumn(),
+                        new ElapsedTimeColumn(),
+                        new RemainingTimeColumn(),
+                        new SpinnerColumn())
+                    .StartAsync(async ctx =>
+                    {
+                        progressTask = ctx.AddTask("[cyan]Preparing automation[/]", maxValue: configuration.Count);
+                        summary = await runCallback(cancellationToken).ConfigureAwait(false);
+                        if (summary != null)
+                        {
+                            progressTask.Value = progressTask.MaxValue;
+                            progressTask.Description = summary.Cancelled
+                                ? "[yellow]Operation cancelled[/]"
+                                : "[green]Automation completed[/]";
+                        }
+                    });
+            }
+            finally
+            {
+                engine.ProgressChanged -= OnProgress;
+                engine.SpamFailed -= OnFailure;
+            }
+
+            if (failure != null)
+            {
+                throw failure;
+            }
+
+            return summary;
+        }
+
+        public void ShowRunSummary(SpamRunSummary summary)
+        {
+            var table = new Table()
+                .AddColumn("[bold]Metric[/]")
+                .AddColumn("[bold]Value[/]")
+                .Border(TableBorder.Rounded)
+                .BorderColor(_theme.BrandAccent);
+
+            table.AddRow("Messages sent", summary.MessagesSent.ToString());
+            table.AddRow("Duration", summary.Duration == TimeSpan.Zero ? "Instant" : summary.Duration.ToString("mm':'ss"));
+            var status = summary.FocusLost
+                ? "[red]Stopped (focus lost)[/]"
+                : summary.Cancelled ? "[yellow]Cancelled[/]" : "[green]Completed[/]";
+            table.AddRow("Status", status);
+            table.AddRow("Errors", summary.Errors == 0 ? "[green]0[/]" : $"[red]{summary.Errors}[/]");
+
+            var panel = new Panel(table)
+                .Header("Run summary")
+                .BorderColor(_theme.BrandPrimary)
+                .Padding(1, 0);
+
+            AnsiConsole.Write(panel);
+            AnsiConsole.WriteLine();
+        }
+
+        public Task<NextAction> PromptNextActionAsync(CancellationToken cancellationToken)
+        {
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[bold]Next action[/]")
+                    .AddChoices("Run again", "Modify configuration", "Exit"));
+
+            var next = choice switch
+            {
+                "Run again" => NextAction.RunAgain,
+                "Modify configuration" => NextAction.ChangeSettings,
+                _ => NextAction.Exit
+            };
+
+            return Task.FromResult(next);
+        }
+
+        public void ShowError(string message, Exception? exception = null)
+        {
+            var panel = new Panel($"[red]{message}[/]")
+                .BorderColor(_theme.Danger)
+                .Header("Error");
+            AnsiConsole.Write(panel);
+            if (exception != null)
+            {
+                AnsiConsole.WriteException(exception, ExceptionFormats.ShortenEverything);
+            }
+        }
+
+        public void Shutdown()
+        {
+            var goodbye = new Panel("[cyan]Thank you for using Textie[/]\n[grey]Stay productive![/]")
+                .BorderColor(_theme.BrandPrimary)
+                .Header("Session Complete");
+            AnsiConsole.Write(goodbye);
+        }
+
+        private SpamProfile? PromptForProfile(IReadOnlyList<SpamProfile> profiles)
+        {
+            var profileName = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[bold]Select a profile[/]")
+                    .AddChoices(profiles.Select(p => p.Name)));
+
+            return profiles.FirstOrDefault(p => p.Name == profileName);
+        }
+
+        private WizardNavigation ConfigureMessage(SpamConfiguration working)
+        {
+            var messagePrompt = new TextPrompt<string>("[bold green]Message text[/]")
+                .DefaultValue(string.IsNullOrWhiteSpace(working.Message) ? "Hello World" : working.Message)
+                .AllowEmpty();
+
+            var message = AnsiConsole.Prompt(messagePrompt);
             if (string.IsNullOrWhiteSpace(message))
-                return ValidationResult.Error("[red]Message cannot be empty[/]");
+            {
+                var confirmCancel = AnsiConsole.Confirm("Message is empty. Cancel setup?", false);
+                if (confirmCancel)
+                {
+                    return WizardNavigation.Cancel;
+                }
+                message = working.Message;
+            }
 
-            if (message.Length > 1000)
-                return ValidationResult.Error("[red]Message too long (maximum 1000 characters)[/]");
-
-            if (message.Length < 1)
-                return ValidationResult.Error("[red]Message must contain at least 1 character[/]");
-
-            // Check for potentially problematic characters
-            if (message.Contains('\n') || message.Contains('\r'))
-                return ValidationResult.Error("[red]Line breaks not supported - use \\n for new lines[/]");
-
-            // Warning for very long messages
             if (message.Length > 500)
-                return ValidationResult.Error("[yellow]Warning: Very long message may cause issues in some applications[/]");
+            {
+                AnsiConsole.MarkupLine($"[yellow]Warning:[/] Very long message ({message.Length} chars) may be truncated by some applications.");
+            }
 
-            return ValidationResult.Success();
+            working.Message = message;
+            return WizardNavigation.Next;
         }
 
-        private ValidationResult ValidateCount(int count)
+        private WizardNavigation ConfigureCount(SpamConfiguration working)
         {
-            if (count < 1)
-                return ValidationResult.Error("[red]Count must be at least 1[/]");
+            var count = AnsiConsole.Prompt(
+                new TextPrompt<int>("[bold yellow]Repetition count[/]")
+                    .DefaultValue(working.Count)
+                    .ValidationErrorMessage("[red]Enter a value between 1 and 10,000[/]")
+                    .Validate(value => value is >= 1 and <= 10000 ? ValidationResult.Success() : ValidationResult.Error("Invalid count")));
 
-            if (count > 10000)
-                return ValidationResult.Error("[red]Count cannot exceed 10,000 for safety[/]");
-
-            return ValidationResult.Success();
-        }
-
-        private void DisplayMessageValidationInfo(string message)
-        {
-            var info = new List<string>();
-
-            info.Add($"[green]✓[/] Length: {message.Length} characters");
-
-            if (message.Length > 100)
-                info.Add($"[yellow]⚠[/] Long message - may be truncated in some apps");
-
-            if (message.Any(char.IsControl))
-                info.Add($"[yellow]⚠[/] Contains special characters");
-            else
-                info.Add($"[green]✓[/] Standard text characters");
-
-            AnsiConsole.MarkupLine($"  [grey70]{string.Join(" • ", info)}[/]");
-        }
-
-        private void DisplayCountValidationInfo(int count)
-        {
-            var estimatedChars = count.ToString().Length + " characters per count display";
-            var riskLevel = count switch
+            working.Count = count;
+            ShowImpact("Count", count switch
             {
                 <= 10 => "[green]Low impact[/]",
-                <= 100 => "[yellow]Moderate impact[/]",
+                <= 100 => "[yellow]Medium impact[/]",
                 <= 1000 => "[orange3]High impact[/]",
                 _ => "[red]Very high impact[/]"
-            };
+            });
 
-            AnsiConsole.MarkupLine($"  [grey70]Impact assessment: {riskLevel} • Will send {count:N0} messages[/]");
+            return WizardNavigation.Next;
         }
 
-        private int ExtractDelayFromChoice(string choice, int fallbackDelay)
+        private WizardNavigation ConfigureDelay(SpamConfiguration working)
         {
-            return choice switch
+            var choices = new[]
             {
-                string s when s.StartsWith("Instant") => 0,
-                string s when s.StartsWith("Rapid") => 50,
-                string s when s.StartsWith("Standard") => 100,
-                string s when s.StartsWith("Moderate") => 500,
-                string s when s.StartsWith("Deliberate") => 1000,
-                _ => PromptCustomDelay(fallbackDelay)
+                "Instant (0ms) - Maximum speed",
+                "Rapid (50ms)",
+                "Standard (100ms)",
+                "Measured (250ms)",
+                "Moderate (500ms)",
+                "Deliberate (1000ms)",
+                "Custom"
             };
-        }
 
-        private int PromptCustomDelay(int fallbackDelay)
-        {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[bold cyan]Custom Timing Configuration[/]");
+            var selection = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[bold cyan]Select delay between messages[/]")
+                    .AddChoices(choices));
 
-            var customDelay = AnsiConsole.Prompt(
-                new TextPrompt<int>("[bold cyan]Enter delay in milliseconds:[/]")
-                    .PromptStyle("cyan")
-                    .DefaultValue(fallbackDelay >= 0 ? fallbackDelay : 100)
-                    .DefaultValueStyle("dim")
-                    .ValidationErrorMessage("[red]Please enter a number between 0 and 60,000[/]")
-                    .Validate(delay =>
-                    {
-                        if (delay < 0)
-                            return ValidationResult.Error("[red]Delay cannot be negative[/]");
-                        if (delay > 60000)
-                            return ValidationResult.Error("[red]Delay cannot exceed 60 seconds (60,000ms)[/]");
-                        if (delay == 0)
-                        {
-                            AnsiConsole.MarkupLine("[yellow]Warning: Zero delay may overwhelm target application[/]");
-                            return ValidationResult.Success();
-                        }
-                        return ValidationResult.Success();
-                    }));
-
-            return customDelay;
-        }
-
-        private void DisplayTimingValidationInfo(SpamConfiguration config)
-        {
-            var totalDuration = TimeSpan.FromMilliseconds(config.Count * config.DelayMilliseconds);
-            var messagesPerSecond = config.DelayMilliseconds > 0 ? Math.Round(1000.0 / config.DelayMilliseconds, 1) : double.PositiveInfinity;
-
-            var speedAssessment = config.DelayMilliseconds switch
+            if (selection == "Custom")
             {
-                0 => "[red]Maximum speed - may overwhelm applications[/]",
-                < 100 => "[orange3]Very fast - use with caution[/]",
-                < 500 => "[yellow]Fast - good for most applications[/]",
-                < 1000 => "[green]Moderate - safe for all applications[/]",
-                _ => "[cyan]Slow - very safe timing[/]"
+                working.DelayMilliseconds = AnsiConsole.Prompt(
+                    new TextPrompt<int>("[bold cyan]Delay (ms)[/]")
+                        .DefaultValue(working.DelayMilliseconds)
+                        .ValidationErrorMessage("[red]0 to 120,000 only[/]")
+                        .Validate(value => value is >= 0 and <= 120000 ? ValidationResult.Success() : ValidationResult.Error("Invalid delay")));
+            }
+            else
+            {
+                working.DelayMilliseconds = selection switch
+                {
+                    var s when s.StartsWith("Instant") => 0,
+                    var s when s.StartsWith("Rapid") => 50,
+                    var s when s.StartsWith("Standard") => 100,
+                    var s when s.StartsWith("Measured") => 250,
+                    var s when s.StartsWith("Moderate") => 500,
+                    _ => 1000
+                };
+            }
+
+            return WizardNavigation.Next;
+        }
+
+        private WizardNavigation ConfigureStrategy(SpamConfiguration working)
+        {
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[bold]Select automation strategy[/]")
+                    .AddChoices(
+                        "Send text and press Enter",
+                        "Send text only",
+                        "Type per character"));
+
+            working.Strategy = choice switch
+            {
+                "Send text only" => SpamStrategy.SendTextOnly,
+                "Type per character" => SpamStrategy.TypePerCharacter,
+                _ => SpamStrategy.SendTextAndEnter
             };
 
-            var rate = messagesPerSecond == double.PositiveInfinity ? "Unlimited" : $"{messagesPerSecond:F1}/sec";
-
-            AnsiConsole.MarkupLine($"  [grey70]Speed: {rate} • Duration: {totalDuration:mm\\:ss} • {speedAssessment}[/]");
+            working.SendSubmitKey = working.Strategy != SpamStrategy.SendTextOnly || AnsiConsole.Confirm("Press Enter after message?", working.SendSubmitKey);
+            return WizardNavigation.Next;
         }
 
-        private bool RequiresConfirmation(SpamConfiguration config)
+        private WizardNavigation ConfigureAdvanced(SpamConfiguration working)
         {
-            // Require confirmation for large operations or very fast speeds
-            return config.Count >= 100 ||
-                   config.DelayMilliseconds <= 10 ||
-                   (config.Count * config.DelayMilliseconds) > 300000; // > 5 minutes
+            working.DelayJitterPercent = AnsiConsole.Prompt(
+                new TextPrompt<int>("[bold]Delay jitter (%)[/]")
+                    .DefaultValue(working.DelayJitterPercent)
+                    .ValidationErrorMessage("[red]0 to 100[/]")
+                    .Validate(value => value is >= 0 and <= 100 ? ValidationResult.Success() : ValidationResult.Error("Invalid jitter")));
+
+            if (working.Strategy == SpamStrategy.TypePerCharacter)
+            {
+                working.PerCharacterDelayMilliseconds = AnsiConsole.Prompt(
+                    new TextPrompt<int>("[bold]Per-character delay (ms)[/]")
+                        .DefaultValue(working.PerCharacterDelayMilliseconds)
+                        .ValidationErrorMessage("[red]0 to 500[/]")
+                        .Validate(value => value is >= 0 and <= 500 ? ValidationResult.Success() : ValidationResult.Error("Invalid delay")));
+            }
+
+            working.EnableTemplating = AnsiConsole.Confirm("Enable templating (supports {index}, {timestamp}, {guid})?", working.EnableTemplating);
+
+            working.LockTargetWindow = AnsiConsole.Confirm("Lock to target window (warn if focus changes)?", working.LockTargetWindow);
+            if (working.LockTargetWindow)
+            {
+                working.TargetWindowTitle = AnsiConsole.Ask<string>("Target window title contains?", working.TargetWindowTitle ?? string.Empty);
+            }
+            else
+            {
+                working.TargetWindowTitle = null;
+            }
+
+            return WizardNavigation.Next;
         }
 
-        private void ShowEnhancedConfigurationSummary(SpamConfiguration config)
+        private WizardNavigation ReviewConfiguration(SpamConfiguration working, out bool saveProfile, out string? profileName)
         {
-            var summaryTable = new Table()
-                .AddColumn(new TableColumn("[bold]Parameter[/]").Width(15))
-                .AddColumn(new TableColumn("[bold]Value[/]").Width(25))
-                .AddColumn(new TableColumn("[bold]Assessment[/]").Width(25))
+            saveProfile = false;
+            profileName = null;
+
+            var summary = BuildConfigurationSummary(working);
+            AnsiConsole.Write(summary);
+
+            var action = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[bold]Confirm configuration[/]")
+                    .AddChoices("Start automation", "Save as profile", "Back", "Cancel"));
+
+            if (action == "Save as profile")
+            {
+                profileName = AnsiConsole.Ask<string>("Profile name", profileName ?? "My profile");
+                saveProfile = true;
+                return WizardNavigation.Next;
+            }
+
+            if (action == "Back")
+            {
+                return WizardNavigation.Back;
+            }
+
+            if (action == "Cancel")
+            {
+                return WizardNavigation.Cancel;
+            }
+
+            return WizardNavigation.Next;
+        }
+
+        private static void ShowImpact(string category, string impact)
+        {
+            AnsiConsole.MarkupLine($"  [grey62]{category} impact: {impact}[/]");
+        }
+
+        private Panel BuildInstructionPanel(SpamConfiguration config)
+        {
+            var markup = new Markup(
+                "[bold]Instructions[/]\n" +
+                "• Focus the target application\n" +
+                "• Press [green]ENTER[/] to start\n" +
+                "• Press [yellow]ESC[/] to cancel\n\n" +
+                $"Strategy: [cyan]{config.Strategy}[/]" +
+                (config.LockTargetWindow ? "\nFocus lock enabled" : string.Empty));
+
+            return new Panel(markup)
+                .BorderColor(_theme.BrandPrimary)
+                .Header("Ready");
+        }
+
+        private Panel BuildConfigurationSummary(SpamConfiguration config)
+        {
+            var table = new Table()
+                .AddColumn("[bold]Parameter[/]")
+                .AddColumn("[bold]Value[/]")
+                .AddColumn("[bold]Assessment[/]")
                 .Border(TableBorder.Rounded)
-                .BorderColor(Color.Green);
+                .BorderColor(_theme.BrandAccent);
 
-            // Message row
-            var messagePreview = config.Message.Length > 20 ? config.Message[..17] + "..." : config.Message;
-            var messageAssessment = config.Message.Length switch
+            var messagePreview = config.Message.Length > 30
+                ? config.Message[..27] + "..."
+                : config.Message;
+
+            table.AddRow("Message", $"[white]{messagePreview}[/]", config.Message.Length switch
             {
                 <= 50 => "[green]Optimal length[/]",
-                <= 200 => "[yellow]Long message[/]",
+                <= 200 => "[yellow]Long[/]",
                 _ => "[orange3]Very long[/]"
-            };
-            summaryTable.AddRow("[cyan]Message[/]", $"[white]\"{messagePreview}\"[/]", messageAssessment);
+            });
 
-            // Count row
-            var countAssessment = config.Count switch
+            table.AddRow("Count", $"{config.Count:N0}", config.Count switch
             {
                 <= 10 => "[green]Small batch[/]",
-                <= 100 => "[yellow]Medium batch[/]",
-                <= 1000 => "[orange3]Large batch[/]",
-                _ => "[red]Very large batch[/]"
-            };
-            summaryTable.AddRow("[cyan]Repetitions[/]", $"[white]{config.Count:N0}[/]", countAssessment);
+                <= 100 => "[yellow]Medium[/]",
+                <= 1000 => "[orange3]Large[/]",
+                _ => "[red]Very large[/]"
+            });
 
-            // Timing row
-            var timingAssessment = config.DelayMilliseconds switch
+            table.AddRow("Delay", $"{config.DelayMilliseconds} ms", config.DelayMilliseconds switch
             {
                 0 => "[red]Instant[/]",
                 <= 50 => "[orange3]Very fast[/]",
                 <= 200 => "[yellow]Fast[/]",
-                <= 500 => "[green]Moderate[/]",
-                _ => "[cyan]Slow[/]"
-            };
-            summaryTable.AddRow("[cyan]Interval[/]", $"[white]{config.DelayMilliseconds}ms[/]", timingAssessment);
+                <= 500 => "[green]Balanced[/]",
+                _ => "[cyan]Conservative[/]"
+            });
 
-            // Duration row
-            var totalDuration = TimeSpan.FromMilliseconds(config.Count * config.DelayMilliseconds);
-            var durationAssessment = totalDuration.TotalSeconds switch
+            table.AddRow("Strategy", config.Strategy.ToString(), config.Strategy switch
             {
-                <= 10 => "[green]Quick[/]",
-                <= 60 => "[yellow]Short[/]",
-                <= 300 => "[orange3]Medium[/]",
-                _ => "[red]Long operation[/]"
-            };
-            summaryTable.AddRow("[cyan]Duration[/]", $"[white]{totalDuration:mm\\:ss}[/]", durationAssessment);
+                SpamStrategy.SendTextAndEnter => "[green]Standard[/]",
+                SpamStrategy.SendTextOnly => "[yellow]Custom[/]",
+                SpamStrategy.TypePerCharacter => "[cyan]Humanized[/]",
+                _ => ""
+            });
 
-            var summaryPanel = new Panel(summaryTable)
-                .Header("Configuration Review")
-                .Border(BoxBorder.Rounded)
-                .BorderColor(Color.Green);
-
-            AnsiConsole.Write(summaryPanel);
-            AnsiConsole.WriteLine();
-        }
-
-        public void ShowInstructions(SpamConfiguration config)
-        {
-            var instructions = new Markup(
-                $"[bold]Operation Instructions:[/]\n\n" +
-                $"[bold green]• Press [yellow]ENTER[/] to begin automation[/]\n" +
-                $"[bold red]• Press [yellow]ESCAPE[/] to halt operation[/]\n" +
-                $"[bold blue]• Ensure target application has [underline]focus[/][/]\n\n" +
-                $"[bold cyan]Active Configuration:[/]\n" +
-                $"[grey70]Text: \"{config.Message}\"[/]\n" +
-                $"[grey70]Count: {config.Count:N0} • Interval: {config.DelayMilliseconds}ms[/]");
-
-            var instructionPanel = new Panel(instructions)
-                .Header("Ready")
-                .Border(BoxBorder.Rounded)
-                .BorderColor(Color.Yellow)
-                .Padding(2, 1);
-
-            AnsiConsole.Write(instructionPanel);
-            AnsiConsole.WriteLine();
-        }
-
-        public void ShowWaitingStatus()
-        {
-            AnsiConsole.MarkupLine("[bold cyan]Monitoring input...[/] [grey70](Press ENTER to start)[/]");
-            AnsiConsole.WriteLine();
-        }
-
-        public void ShowSpamStarted()
-        {
-            AnsiConsole.MarkupLine("[bold green]Automation initiated[/] [grey70](Press ESCAPE to stop)[/]");
-        }
-
-        public void ShowSpamCompleted()
-        {
-            AnsiConsole.MarkupLine("[bold green]Operation completed successfully[/]");
-        }
-
-        public void ShowSpamCancelled()
-        {
-            AnsiConsole.MarkupLine("[bold yellow]Operation cancelled by user[/]");
-        }
-
-        public NextAction GetNextAction()
-        {
-            AnsiConsole.WriteLine();
-
-            var choice = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("[bold blue]Select next action:[/]")
-                    .PageSize(4)
-                    .AddChoices(new[]
-                    {
-                        "Repeat with current settings",
-                        "Modify configuration",
-                        "Exit application"
-                    }));
-
-            return choice switch
+            table.AddRow("Jitter", $"{config.DelayJitterPercent}%", config.DelayJitterPercent switch
             {
-                "Repeat with current settings" => NextAction.RunAgain,
-                "Modify configuration" => NextAction.ChangeSettings,
-                _ => NextAction.Exit
-            };
+                0 => "[green]Stable[/]",
+                <= 15 => "[yellow]Light variation[/]",
+                _ => "[orange3]High variation[/]"
+            });
+
+            table.AddRow("Templating", config.EnableTemplating ? "Enabled" : "Disabled", config.EnableTemplating ? "[cyan]Dynamic[/]" : "[grey66]Static[/]");
+
+            if (config.LockTargetWindow && !string.IsNullOrWhiteSpace(config.TargetWindowTitle))
+            {
+                table.AddRow("Target", config.TargetWindowTitle, "[cyan]Locked[/]");
+            }
+
+            return new Panel(table)
+                .BorderColor(_theme.BrandAccent)
+                .Header("Configuration Summary");
         }
 
-        public void ShowError(string message)
+        private Panel BuildProfilesPanel(IReadOnlyList<SpamProfile> profiles)
         {
-            var errorPanel = new Panel($"[bold red]{message}[/]")
-                .Header("Error")
-                .Border(BoxBorder.Rounded)
-                .BorderColor(Color.Red);
+            if (profiles.Count == 0)
+            {
+                return new Panel("[grey62]No profiles saved yet[/]")
+                    .BorderColor(_theme.Neutral)
+                    .Header("Profiles");
+            }
 
-            AnsiConsole.Write(errorPanel);
+            var table = new Table()
+                .AddColumn("[bold]Profile[/]")
+                .AddColumn("[bold]Last used[/]")
+                .Border(TableBorder.Rounded)
+                .BorderColor(_theme.BrandAccent);
+
+            foreach (var profile in profiles.OrderByDescending(p => p.LastUsed).Take(5))
+            {
+                table.AddRow(profile.Name, profile.LastUsed.ToLocalTime().ToString("g"));
+            }
+
+            return new Panel(table)
+                .BorderColor(_theme.BrandAccent)
+                .Header("Profiles");
+        }
+
+        private void RenderStepper(int stepIndex, SpamConfiguration working, SpamProfile? profile)
+        {
+            AnsiConsole.Clear();
+            Initialize();
+
+            if (profile != null)
+            {
+                AnsiConsole.MarkupLine($"Using profile: [cyan]{profile.Name}[/]\n");
+            }
+
+            var steps = new[]
+            {
+                "Message",
+                "Count",
+                "Delay",
+                "Strategy",
+                "Advanced",
+                "Review"
+            };
+
+            var stepTable = new Table()
+                .AddColumn(new TableColumn("[bold]Step[/]").NoWrap())
+                .HideHeaders()
+                .Border(TableBorder.None);
+
+            foreach (var (step, index) in steps.Select((s, idx) => (s, idx)))
+            {
+                var state = index < stepIndex ? "[green]✔" : index == stepIndex ? "[cyan]➤" : "[grey50]•";
+                stepTable.AddRow($"{state}[/] {step}");
+            }
+
+            AnsiConsole.Write(stepTable);
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(BuildConfigurationSummary(working));
             AnsiConsole.WriteLine();
         }
 
-        public void ShowGoodbye()
+        private enum WizardNavigation
         {
-            var goodbyePanel = new Panel(
-                "[bold cyan]Thank you for using Textie[/]\n" +
-                "[grey70]Professional automation tools[/]")
-                .Header("Session Complete")
-                .Border(BoxBorder.Rounded)
-                .BorderColor(Color.Cyan1)
-                .Padding(1, 0);
-
-            AnsiConsole.Write(goodbyePanel);
+            Next,
+            Back,
+            Cancel,
+            Complete
         }
-    }
-
-    public enum NextAction
-    {
-        RunAgain,
-        ChangeSettings,
-        Exit
     }
 }
