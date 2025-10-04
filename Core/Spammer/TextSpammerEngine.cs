@@ -1,138 +1,196 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Spectre.Console;
-using WindowsInput;
-using WindowsInput.Native;
+using Microsoft.Extensions.Logging;
+using Textie.Core.Abstractions;
 using Textie.Core.Configuration;
+using Textie.Core.Templates;
 
 namespace Textie.Core.Spammer
 {
-    public class TextSpammerEngine : IDisposable
+    public sealed class TextSpammerEngine : IDisposable
     {
-        // Events
-        public event Action? SpamStarted;
-        public event Action? SpamCompleted;
-        public event Action? SpamCancelled;
+        private readonly ITextAutomationService _automationService;
+        private readonly ITemplateRenderer _templateRenderer;
+        private readonly ILogger<TextSpammerEngine> _logger;
+        private readonly SemaphoreSlim _executionLock = new(1, 1);
 
-        // State management
-        private readonly InputSimulator _inputSimulator;
-        private CancellationTokenSource? _cancellationTokenSource;
-        private Task? _spamTask;
-        private bool _disposed = false;
+        private CancellationTokenSource? _runCancellationSource;
+        private bool _disposed;
+
+        public TextSpammerEngine(ITextAutomationService automationService, ITemplateRenderer templateRenderer, ILogger<TextSpammerEngine> logger)
+        {
+            _automationService = automationService;
+            _templateRenderer = templateRenderer;
+            _logger = logger;
+        }
 
         public bool IsSpamming { get; private set; }
 
-        public TextSpammerEngine()
+        public event EventHandler? SpamStarted;
+        public event EventHandler<SpamProgressEventArgs>? ProgressChanged;
+        public event EventHandler<SpamRunSummary>? SpamCompleted;
+        public event EventHandler<SpamRunSummary>? SpamCancelled;
+        public event EventHandler<Exception>? SpamFailed;
+
+        public async Task<SpamRunSummary?> StartSpammingAsync(SpamConfiguration configuration, CancellationToken cancellationToken)
         {
-            _inputSimulator = new InputSimulator();
-        }
+            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+            if (!configuration.IsValid()) throw new ArgumentException("Invalid configuration", nameof(configuration));
+            if (_disposed) throw new ObjectDisposedException(nameof(TextSpammerEngine));
 
-        public async Task StartSpammingAsync(SpamConfiguration configuration)
-        {
-            if (IsSpamming)
-                return;
-
-            if (!configuration.IsValid())
-                throw new ArgumentException("Invalid configuration", nameof(configuration));
-
-            IsSpamming = true;
-            SpamStarted?.Invoke();
-
-            _cancellationTokenSource = new CancellationTokenSource();
-            _spamTask = ExecuteSpamAsync(configuration, _cancellationTokenSource.Token);
-
+            await _executionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                await _spamTask;
-                SpamCompleted?.Invoke();
-            }
-            catch (OperationCanceledException)
-            {
-                SpamCancelled?.Invoke();
+                if (IsSpamming)
+                {
+                    _logger.LogWarning("Spam request ignored because an operation is already running.");
+                    return null;
+                }
+
+                IsSpamming = true;
+                _runCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var linkedToken = _runCancellationSource.Token;
+
+                SpamStarted?.Invoke(this, EventArgs.Empty);
+
+                try
+                {
+                    var summary = await ExecuteSpamAsync(configuration, linkedToken).ConfigureAwait(false);
+                    SpamCompleted?.Invoke(this, summary);
+                    return summary;
+                }
+                catch (OperationCanceledException)
+                {
+                    var summary = new SpamRunSummary { Cancelled = true };
+                    SpamCancelled?.Invoke(this, summary);
+                    return summary;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Spam execution failed.");
+                    SpamFailed?.Invoke(this, ex);
+                    throw;
+                }
+                finally
+                {
+                    IsSpamming = false;
+                    _runCancellationSource?.Dispose();
+                    _runCancellationSource = null;
+                }
             }
             finally
             {
-                IsSpamming = false;
-                _cancellationTokenSource?.Dispose();
-                _cancellationTokenSource = null;
+                _executionLock.Release();
             }
         }
 
         public void StopSpamming()
         {
-            _cancellationTokenSource?.Cancel();
+            if (_disposed) throw new ObjectDisposedException(nameof(TextSpammerEngine));
+            _runCancellationSource?.Cancel();
         }
 
-        private async Task ExecuteSpamAsync(SpamConfiguration config, CancellationToken cancellationToken)
+        private async Task<SpamRunSummary> ExecuteSpamAsync(SpamConfiguration config, CancellationToken cancellationToken)
         {
-            await Task.Run(() =>
+            var stopwatch = Stopwatch.StartNew();
+            var summary = new SpamRunSummary();
+            var random = new Random();
+
+            for (int index = 0; index < config.Count; index++)
             {
-                AnsiConsole.Progress()
-                    .Start(ctx =>
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var context = new SpamTemplateContext(index + 1, config.Count, random);
+                var message = config.EnableTemplating
+                    ? _templateRenderer.Render(config.Message, context)
+                    : config.Message;
+
+                try
+                {
+                    await ExecuteStrategyAsync(config, message, cancellationToken).ConfigureAwait(false);
+                    summary.MessagesSent++;
+                    ProgressChanged?.Invoke(this, new SpamProgressEventArgs(summary.MessagesSent, config.Count, $"Sent {summary.MessagesSent}/{config.Count}"));
+                }
+                catch (Exception ex)
+                {
+                    summary.Errors++;
+                    _logger.LogError(ex, "Failed to send message {Index}.", index + 1);
+                    SpamFailed?.Invoke(this, ex);
+                }
+
+                if (index < config.Count - 1)
+                {
+                    var delay = CalculateDelay(config, random);
+                    if (delay > TimeSpan.Zero)
                     {
-                        var progressTask = ctx.AddTask(
-                            "[bold blue]Processing messages...[/]",
-                            new ProgressTaskSettings
-                            {
-                                MaxValue = config.Count,
-                                AutoStart = true
-                            });
+                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+            }
 
-                        for (int i = 0; i < config.Count; i++)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-
-                            try
-                            {
-                                SendMessage(config.Message);
-                                progressTask.Increment(1);
-
-                                // Update progress with current status
-                                progressTask.Description = $"[bold blue]Processed {i + 1}/{config.Count} messages[/]";
-                            }
-                            catch (Exception ex)
-                            {
-                                AnsiConsole.MarkupLine($"[red]Error processing message {i + 1}: {ex.Message}[/]");
-                            }
-
-                            // Apply delay if specified and not the last message
-                            if (config.DelayMilliseconds > 0 && i < config.Count - 1)
-                            {
-                                Thread.Sleep(config.DelayMilliseconds);
-                            }
-
-                            cancellationToken.ThrowIfCancellationRequested();
-                        }
-
-                        // Ensure progress bar shows completion
-                        progressTask.Value = progressTask.MaxValue;
-                        progressTask.Description = "[bold green]All messages processed successfully[/]";
-                    });
-            }, cancellationToken);
+            stopwatch.Stop();
+            summary.Duration = stopwatch.Elapsed;
+            return summary;
         }
 
-        private void SendMessage(string message)
+        private async Task ExecuteStrategyAsync(SpamConfiguration config, string message, CancellationToken cancellationToken)
         {
-            try
+            switch (config.Strategy)
             {
-                _inputSimulator.Keyboard.TextEntry(message);
-                _inputSimulator.Keyboard.KeyPress(VirtualKeyCode.RETURN);
+                case SpamStrategy.SendTextAndEnter:
+                    await _automationService.SendTextAsync(message, cancellationToken).ConfigureAwait(false);
+                    if (config.SendSubmitKey)
+                    {
+                        await _automationService.PressEnterAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    break;
+                case SpamStrategy.SendTextOnly:
+                    await _automationService.SendTextAsync(message, cancellationToken).ConfigureAwait(false);
+                    if (config.SendSubmitKey)
+                    {
+                        await _automationService.PressEnterAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    break;
+                case SpamStrategy.TypePerCharacter:
+                    await _automationService.TypeTextAsync(message, config.PerCharacterDelayMilliseconds, cancellationToken).ConfigureAwait(false);
+                    if (config.SendSubmitKey)
+                    {
+                        await _automationService.PressEnterAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(config.Strategy), config.Strategy, "Unsupported spam strategy");
             }
-            catch (Exception ex)
+        }
+
+        private static TimeSpan CalculateDelay(SpamConfiguration config, Random random)
+        {
+            var baseDelay = config.DelayMilliseconds;
+            if (baseDelay <= 0)
             {
-                throw new InvalidOperationException($"Failed to send message: {ex.Message}", ex);
+                return TimeSpan.Zero;
             }
+
+            if (config.DelayJitterPercent <= 0)
+            {
+                return TimeSpan.FromMilliseconds(baseDelay);
+            }
+
+            var jitterAmplitude = baseDelay * config.DelayJitterPercent / 100.0;
+            var offset = (random.NextDouble() * 2 - 1) * jitterAmplitude;
+            var jittered = Math.Max(0, baseDelay + offset);
+            return TimeSpan.FromMilliseconds(jittered);
         }
 
         public void Dispose()
         {
-            if (!_disposed)
-            {
-                StopSpamming();
-                _cancellationTokenSource?.Dispose();
-                _disposed = true;
-            }
+            if (_disposed) return;
+            _executionLock.Dispose();
+            _runCancellationSource?.Dispose();
+            (_automationService as IDisposable)?.Dispose();
+            _disposed = true;
         }
     }
 }
