@@ -37,7 +37,7 @@ namespace Textie.Core.Cli
             };
 
             await _scheduleManager.AddOrUpdateAsync(scheduledRun, CancellationToken.None).ConfigureAwait(false);
-            AnsiConsole.MarkupLine($"[green]Schedule '{settings.Name}' added. Next run: {nextRun:g}[/]");
+            AnsiConsole.MarkupLine($"[green]Schedule '{Markup.Escape(settings.Name)}' added. Next run: {nextRun:g}[/]");
             return 0;
         }
 

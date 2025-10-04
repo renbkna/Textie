@@ -131,7 +131,8 @@ namespace Textie.Core.UI
                 if (progressTask != null)
                 {
                     progressTask.Value = e.Current;
-                    progressTask.Description = $"[cyan]Sending[/] {e.Current}/{e.Total} [{e.Status}]";
+                    var safeStatus = Markup.Escape(e.Status ?? string.Empty);
+                    progressTask.Description = $"[cyan]Sending[/] {e.Current}/{e.Total} ({safeStatus})";
                 }
             }
 
@@ -224,7 +225,7 @@ namespace Textie.Core.UI
 
         public void ShowError(string message, Exception? exception = null)
         {
-            var panel = new Panel($"[red]{message}[/]")
+            var panel = new Panel($"[red]{Markup.Escape(message)}[/]")
                 .BorderColor(_theme.Danger)
                 .Header("Error");
             AnsiConsole.Write(panel);
@@ -459,7 +460,8 @@ namespace Textie.Core.UI
                 ? config.Message[..27] + "..."
                 : config.Message;
 
-            table.AddRow("Message", $"[white]{messagePreview}[/]", config.Message.Length switch
+            var safeMessagePreview = Markup.Escape(messagePreview);
+            table.AddRow("Message", $"[white]{safeMessagePreview}[/]", config.Message.Length switch
             {
                 <= 50 => "[green]Optimal length[/]",
                 <= 200 => "[yellow]Long[/]",
@@ -502,7 +504,7 @@ namespace Textie.Core.UI
 
             if (config.LockTargetWindow && !string.IsNullOrWhiteSpace(config.TargetWindowTitle))
             {
-                table.AddRow("Target", config.TargetWindowTitle, "[cyan]Locked[/]");
+                table.AddRow("Target", Markup.Escape(config.TargetWindowTitle), "[cyan]Locked[/]");
             }
 
             return new Panel(table)
@@ -527,7 +529,7 @@ namespace Textie.Core.UI
 
             foreach (var profile in profiles.OrderByDescending(p => p.LastUsed).Take(5))
             {
-                table.AddRow(profile.Name, profile.LastUsed.ToLocalTime().ToString("g"));
+                table.AddRow(Markup.Escape(profile.Name), profile.LastUsed.ToLocalTime().ToString("g"));
             }
 
             return new Panel(table)
@@ -542,7 +544,8 @@ namespace Textie.Core.UI
 
             if (profile != null)
             {
-                AnsiConsole.MarkupLine($"Using profile: [cyan]{profile.Name}[/]\n");
+                var safeProfile = Markup.Escape(profile.Name);
+                AnsiConsole.MarkupLine($"Using profile: [cyan]{safeProfile}[/]\n");
             }
 
             var steps = new[]

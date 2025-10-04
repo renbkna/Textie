@@ -33,7 +33,7 @@ namespace Textie.Core.Cli
             };
 
             await _configurationManager.SaveProfileAsync(profile, CancellationToken.None).ConfigureAwait(false);
-            AnsiConsole.MarkupLine($"[green]Profile '{profile.Name}' saved.[/]");
+            AnsiConsole.MarkupLine($"[green]Profile '{Markup.Escape(profile.Name)}' saved.[/]");
             return 0;
         }
 

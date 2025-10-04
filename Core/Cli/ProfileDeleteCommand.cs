@@ -25,7 +25,7 @@ namespace Textie.Core.Cli
 
             await _configurationManager.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
             await _configurationManager.DeleteProfileAsync(settings.Name, CancellationToken.None).ConfigureAwait(false);
-            AnsiConsole.MarkupLine($"[yellow]Profile '{settings.Name}' deleted (if it existed).[/]");
+            AnsiConsole.MarkupLine($"[yellow]Profile '{Markup.Escape(settings.Name)}' deleted (if it existed).[/]");
             return 0;
         }
 

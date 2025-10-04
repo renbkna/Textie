@@ -25,7 +25,7 @@ namespace Textie.Core.Cli
 
             await _scheduleManager.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
             await _scheduleManager.RemoveAsync(settings.Name, CancellationToken.None).ConfigureAwait(false);
-            AnsiConsole.MarkupLine($"[yellow]Schedule '{settings.Name}' removed (if it existed).[/]");
+            AnsiConsole.MarkupLine($"[yellow]Schedule '{Markup.Escape(settings.Name)}' removed (if it existed).[/]");
             return 0;
         }
 

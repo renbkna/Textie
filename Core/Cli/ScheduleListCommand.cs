@@ -37,9 +37,9 @@ namespace Textie.Core.Cli
             foreach (var schedule in schedules.OrderBy(s => s.Name))
             {
                 table.AddRow(
-                    schedule.Name,
-                    schedule.ProfileName,
-                    schedule.CronExpression,
+                    Markup.Escape(schedule.Name),
+                    Markup.Escape(schedule.ProfileName),
+                    Markup.Escape(schedule.CronExpression),
                     schedule.Enabled ? "[green]Yes[/]" : "[red]No[/]",
                     schedule.NextRun?.ToString("g") ?? "n/a");
             }

@@ -33,7 +33,7 @@ namespace Textie.Core.Cli
 
             foreach (var profile in profiles.OrderByDescending(p => p.LastUsed))
             {
-                table.AddRow(profile.Name, profile.LastUsed.ToLocalTime().ToString("g"));
+                table.AddRow(Markup.Escape(profile.Name), profile.LastUsed.ToLocalTime().ToString("g"));
             }
 
             AnsiConsole.Write(table);
