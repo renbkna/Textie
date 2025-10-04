@@ -3,140 +3,141 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
+using Textie.Core.Abstractions;
 
 namespace Textie.Core.Input
 {
-    public class GlobalKeyboardHook : IDisposable
+    public sealed class GlobalKeyboardHook : IHotkeyService
     {
-        // Windows API constants
-        private const int WH_KEYBOARD_LL = 13;
-        private const int WM_KEYDOWN = 0x0100;
-        private const int VK_RETURN = 0x0D;
-        private const int VK_ESCAPE = 0x1B;
+        private const int WhKeyboardLl = 13;
+        private const int WmKeydown = 0x0100;
+        private const int VkReturn = 0x0D;
+        private const int VkEscape = 0x1B;
 
-        // Events
-        public event Action? EnterPressed;
-        public event Action? EscapePressed;
-
-        // Hook management
-        private LowLevelKeyboardProc _hookProc;
+        private LowLevelKeyboardProc? _hookProc;
         private IntPtr _hookId = IntPtr.Zero;
-        private bool _disposed = false;
+        private TaskCompletionSource<HotkeyAction>? _signalSource;
+        private bool _disposed;
 
-        // Async synchronization
-        private readonly ManualResetEventSlim _completionSignal = new(false);
+        public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public GlobalKeyboardHook()
+        public Task<HotkeyAction> WaitForNextAsync(CancellationToken cancellationToken)
         {
-            _hookProc = HookCallback;
-        }
+            if (_disposed) throw new ObjectDisposedException(nameof(GlobalKeyboardHook));
 
-        public bool Install()
-        {
-            if (_hookId != IntPtr.Zero)
-                return true; // Already installed
+            EnsureHookInstalled();
 
-            _hookId = SetHook(_hookProc);
-            return _hookId != IntPtr.Zero;
-        }
+            var source = new TaskCompletionSource<HotkeyAction>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var registration = cancellationToken.Register(() => source.TrySetCanceled(cancellationToken));
 
-        public void Uninstall()
-        {
-            if (_hookId != IntPtr.Zero)
+            var previous = Interlocked.Exchange(ref _signalSource, source);
+            previous?.TrySetResult(HotkeyAction.None);
+
+            return WaitForCompletionAsync(source, registration);
+
+            async Task<HotkeyAction> WaitForCompletionAsync(TaskCompletionSource<HotkeyAction> completionSource, CancellationTokenRegistration tokenRegistration)
             {
-                UnhookWindowsHookEx(_hookId);
-                _hookId = IntPtr.Zero;
-            }
-        }
-
-        public async Task WaitForNextActionAsync()
-        {
-            _completionSignal.Reset();
-
-            // Run message loop in a task to keep it responsive
-            await Task.Run(() =>
-            {
-                while (!_completionSignal.IsSet)
+                try
                 {
-                    Application.DoEvents();
-                    _completionSignal.Wait(TimeSpan.FromMilliseconds(10));
+                    return await completionSource.Task.ConfigureAwait(false);
                 }
-            });
+                finally
+                {
+                    tokenRegistration.Dispose();
+                    Interlocked.CompareExchange(ref _signalSource, null, completionSource);
+                    UninstallHook();
+                }
+            }
         }
 
         public void SignalCompletion()
         {
-            _completionSignal.Set();
-        }
-
-        private IntPtr SetHook(LowLevelKeyboardProc proc)
-        {
-            try
-            {
-                using var curProcess = Process.GetCurrentProcess();
-                using var curModule = curProcess.MainModule;
-
-                if (curModule?.ModuleName == null)
-                    return IntPtr.Zero;
-
-                return SetWindowsHookEx(
-                    WH_KEYBOARD_LL,
-                    proc,
-                    GetModuleHandle(curModule.ModuleName),
-                    0);
-            }
-            catch
-            {
-                return IntPtr.Zero;
-            }
+            _signalSource?.TrySetResult(HotkeyAction.None);
         }
 
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            try
+            if (nCode >= 0 && wParam == (IntPtr)WmKeydown)
             {
-                if (nCode >= 0 && wParam == (IntPtr)WM_KEYDOWN)
+                try
                 {
                     int vkCode = Marshal.ReadInt32(lParam);
-
                     switch (vkCode)
                     {
-                        case VK_RETURN:
-                            EnterPressed?.Invoke();
+                        case VkReturn:
+                            _signalSource?.TrySetResult(HotkeyAction.Start);
                             break;
-                        case VK_ESCAPE:
-                            EscapePressed?.Invoke();
+                        case VkEscape:
+                            _signalSource?.TrySetResult(HotkeyAction.Stop);
                             break;
                     }
                 }
-            }
-            catch
-            {
-                // Ignore exceptions in hook callback to prevent system instability
+                catch
+                {
+                    // ignore hook errors to avoid destabilizing host
+                }
             }
 
             return CallNextHookEx(_hookId, nCode, wParam, lParam);
         }
 
-        public void Dispose()
+        private IntPtr SetHook(LowLevelKeyboardProc proc)
         {
-            if (!_disposed)
+            using var curProcess = Process.GetCurrentProcess();
+            using var curModule = curProcess.MainModule;
+
+            if (curModule?.ModuleName is null)
             {
-                Uninstall();
-                _completionSignal?.Dispose();
-                _disposed = true;
+                return IntPtr.Zero;
+            }
+
+            return SetWindowsHookEx(
+                WhKeyboardLl,
+                proc,
+                GetModuleHandle(curModule.ModuleName),
+                0);
+        }
+
+        private void EnsureHookInstalled()
+        {
+            if (_hookId != IntPtr.Zero)
+            {
+                return;
+            }
+
+            _hookProc ??= HookCallback;
+            _hookId = SetHook(_hookProc);
+            if (_hookId == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("Failed to install global keyboard hook. Consider running as administrator.");
             }
         }
 
-        // Windows API P/Invoke declarations
+        private void UninstallHook()
+        {
+            var handle = Interlocked.Exchange(ref _hookId, IntPtr.Zero);
+            if (handle != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(handle);
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+
+            UninstallHook();
+            _signalSource?.TrySetCanceled();
+            _signalSource = null;
+            _disposed = true;
+        }
+
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool UnhookWindowsHookEx(IntPtr hhk);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]

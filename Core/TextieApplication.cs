@@ -1,146 +1,230 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
-using Spectre.Console;
+using Microsoft.Extensions.Logging;
+using Textie.Core.Abstractions;
 using Textie.Core.Configuration;
-using Textie.Core.UI;
-using Textie.Core.Input;
 using Textie.Core.Spammer;
+using Textie.Core.UI;
 
 namespace Textie.Core
 {
-    public class TextieApplication : IDisposable
+    public class TextieApplication
     {
-        private readonly ConfigurationManager _configManager;
-        private readonly UserInterface _ui;
-        private readonly GlobalKeyboardHook _keyboardHook;
+        private readonly ConfigurationManager _configurationManager;
+        private readonly IUserInterface _ui;
+        private readonly IHotkeyService _hotkeys;
         private readonly TextSpammerEngine _spammerEngine;
-        private bool _disposed = false;
+        private readonly ILogger<TextieApplication> _logger;
 
-        public TextieApplication()
+        public TextieApplication(
+            ConfigurationManager configurationManager,
+            IUserInterface ui,
+            IHotkeyService hotkeys,
+            TextSpammerEngine spammerEngine,
+            ILogger<TextieApplication> logger)
         {
-            _configManager = new ConfigurationManager();
-            _ui = new UserInterface();
-            _keyboardHook = new GlobalKeyboardHook();
-            _spammerEngine = new TextSpammerEngine();
-
-            // Wire up events
-            _keyboardHook.EnterPressed += OnEnterPressed;
-            _keyboardHook.EscapePressed += OnEscapePressed;
-            _spammerEngine.SpamStarted += OnSpamStarted;
-            _spammerEngine.SpamCompleted += OnSpamCompleted;
-            _spammerEngine.SpamCancelled += OnSpamCancelled;
+            _configurationManager = configurationManager;
+            _ui = ui;
+            _hotkeys = hotkeys;
+            _spammerEngine = spammerEngine;
+            _logger = logger;
         }
 
-        public async Task RunAsync()
+        public async Task RunAsync(CancellationToken cancellationToken)
         {
-            try
+            await _configurationManager.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            await _hotkeys.InitializeAsync(cancellationToken).ConfigureAwait(false);
+
+            _ui.Initialize();
+
+            var running = true;
+            while (running && !cancellationToken.IsCancellationRequested)
             {
-                _ui.ShowWelcome();
+                var currentConfig = _configurationManager.CurrentConfiguration;
+                var profiles = await _configurationManager.GetProfilesAsync(cancellationToken).ConfigureAwait(false);
+                var wizardResult = await _ui.RunConfigurationWizardAsync(currentConfig, profiles, cancellationToken).ConfigureAwait(false);
 
-                var mainLoop = true;
-                var needsConfiguration = true;
-
-                while (mainLoop)
+                if (wizardResult.IsCancelled)
                 {
-                    if (needsConfiguration)
+                    var continueApp = await _ui.PromptNextActionAsync(cancellationToken).ConfigureAwait(false);
+                    if (continueApp == NextAction.Exit)
                     {
-                        var config = await _ui.CollectConfigurationAsync(_configManager.GetConfiguration());
-
-                        // Check if configuration was cancelled (empty config returned)
-                        if (string.IsNullOrEmpty(config.Message))
-                        {
-                            continue; // Stay in configuration mode
-                        }
-
-                        _configManager.UpdateConfiguration(config);
-                        needsConfiguration = false;
-                    }
-
-                    _ui.ShowInstructions(_configManager.GetConfiguration());
-                    _ui.ShowWaitingStatus();
-
-                    // Setup keyboard hook and wait for user action
-                    if (!_keyboardHook.Install())
-                    {
-                        _ui.ShowError("Failed to install keyboard hook. Try running as administrator.");
                         break;
                     }
 
-                    // Wait for hook events to trigger spam operation or exit
-                    await _keyboardHook.WaitForNextActionAsync();
+                    continue;
+                }
 
-                    // Cleanup hook before showing next options
-                    _keyboardHook.Uninstall();
-
-                    // Show completion status and get next action
-                    var nextAction = _ui.GetNextAction();
-
-                    switch (nextAction)
+                try
+                {
+                    await _configurationManager.UpdateConfigurationAsync(wizardResult.Configuration, cancellationToken).ConfigureAwait(false);
+                    if (wizardResult.SaveProfile && !string.IsNullOrWhiteSpace(wizardResult.ProfileName))
                     {
-                        case NextAction.RunAgain:
-                            needsConfiguration = false;
-                            break;
-                        case NextAction.ChangeSettings:
-                            needsConfiguration = true;
-                            break;
-                        case NextAction.Exit:
-                            mainLoop = false;
-                            break;
+                        await _configurationManager.SaveProfileAsync(new SpamProfile
+                        {
+                            Name = wizardResult.ProfileName!,
+                            Configuration = wizardResult.Configuration,
+                            Notes = wizardResult.SelectedProfile?.Notes
+                        }, cancellationToken).ConfigureAwait(false);
                     }
                 }
+                catch (Exception ex)
+                {
+                    _ui.ShowError("Failed to persist configuration", ex);
+                    _logger.LogError(ex, "Failed to persist configuration.");
+                    continue;
+                }
+
+                currentConfig = wizardResult.Configuration;
+                profiles = await _configurationManager.GetProfilesAsync(cancellationToken).ConfigureAwait(false);
+
+                await _ui.ShowWaitingDashboardAsync(currentConfig, profiles, cancellationToken).ConfigureAwait(false);
+
+                HotkeyAction action;
+                do
+                {
+                    action = await _hotkeys.WaitForNextAsync(cancellationToken).ConfigureAwait(false);
+                    if (action == HotkeyAction.Exit)
+                    {
+                        return;
+                    }
+                } while (action != HotkeyAction.Start);
+
+                var summary = await _ui.RunAutomationAsync(currentConfig, _spammerEngine, token => ExecuteAutomationAsync(currentConfig, token), cancellationToken).ConfigureAwait(false);
+                _hotkeys.SignalCompletion();
+
+                if (summary != null)
+                {
+                    _ui.ShowRunSummary(summary);
+                }
+
+                var next = await _ui.PromptNextActionAsync(cancellationToken).ConfigureAwait(false);
+                switch (next)
+                {
+                    case NextAction.RunAgain:
+                        continue;
+                    case NextAction.ChangeSettings:
+                        continue;
+                    case NextAction.Exit:
+                        running = false;
+                        break;
+                }
             }
-            catch (Exception ex)
+
+            _ui.Shutdown();
+        }
+
+        private async Task<SpamRunSummary?> ExecuteAutomationAsync(SpamConfiguration configuration, CancellationToken cancellationToken)
+        {
+            using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var focusLost = false;
+            CancellationTokenSource? focusMonitorCts = null;
+            Task? focusMonitorTask = null;
+
+            if (configuration.LockTargetWindow && !string.IsNullOrWhiteSpace(configuration.TargetWindowTitle))
             {
-                _ui.ShowError($"Application error: {ex.Message}");
-                AnsiConsole.WriteException(ex, ExceptionFormats.ShortenPaths | ExceptionFormats.ShortenTypes);
+                var expected = configuration.TargetWindowTitle!;
+                var initialTitle = Input.WindowUtilities.GetForegroundWindowTitle();
+                if (string.IsNullOrWhiteSpace(initialTitle) || !initialTitle.Contains(expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    _ui.ShowError($"Focus the target window containing '{expected}' before starting.");
+                    return new SpamRunSummary { Cancelled = true, FocusLost = true };
+                }
+
+                focusMonitorCts = CancellationTokenSource.CreateLinkedTokenSource(linkedCancellation.Token);
+                focusMonitorTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (!focusMonitorCts.IsCancellationRequested)
+                        {
+                            await Task.Delay(250, focusMonitorCts.Token).ConfigureAwait(false);
+                            var currentTitle = Input.WindowUtilities.GetForegroundWindowTitle();
+                            if (string.IsNullOrWhiteSpace(currentTitle) || !currentTitle.Contains(expected, StringComparison.OrdinalIgnoreCase))
+                            {
+                                focusLost = true;
+                                _spammerEngine.StopSpamming();
+                                focusMonitorCts.Cancel();
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // expected on cancellation
+                    }
+                }, focusMonitorCts.Token);
             }
-            finally
+
+            var spamTask = _spammerEngine.StartSpammingAsync(configuration, linkedCancellation.Token);
+            var waitTask = _hotkeys.WaitForNextAsync(linkedCancellation.Token);
+
+            while (true)
             {
-                _ui.ShowGoodbye();
+                var completed = await Task.WhenAny(spamTask, waitTask).ConfigureAwait(false);
+                if (completed == spamTask)
+                {
+                    var summary = await spamTask.ConfigureAwait(false);
+                    if (summary != null)
+                    {
+                        summary.FocusLost = focusLost;
+                    }
+                    await CleanupFocusMonitorAsync(focusMonitorCts, focusMonitorTask).ConfigureAwait(false);
+                    return summary;
+                }
+
+                var action = await waitTask.ConfigureAwait(false);
+                switch (action)
+                {
+                    case HotkeyAction.Stop:
+                        _spammerEngine.StopSpamming();
+                        linkedCancellation.Cancel();
+                        {
+                            var summary = await spamTask.ConfigureAwait(false);
+                            if (summary != null)
+                            {
+                                summary.FocusLost = focusLost;
+                            }
+                            await CleanupFocusMonitorAsync(focusMonitorCts, focusMonitorTask).ConfigureAwait(false);
+                            return summary;
+                        }
+                    case HotkeyAction.Exit:
+                        _spammerEngine.StopSpamming();
+                        linkedCancellation.Cancel();
+                        {
+                            var summary = await spamTask.ConfigureAwait(false);
+                            if (summary != null)
+                            {
+                                summary.FocusLost = focusLost;
+                            }
+                            await CleanupFocusMonitorAsync(focusMonitorCts, focusMonitorTask).ConfigureAwait(false);
+                            return summary;
+                        }
+                    case HotkeyAction.Start:
+                    case HotkeyAction.None:
+                        waitTask = _hotkeys.WaitForNextAsync(linkedCancellation.Token);
+                        break;
+                }
             }
         }
 
-        private async void OnEnterPressed()
+        private static async Task CleanupFocusMonitorAsync(CancellationTokenSource? cts, Task? monitorTask)
         {
-            if (!_spammerEngine.IsSpamming)
+            if (cts != null)
             {
-                var config = _configManager.GetConfiguration();
-                await _spammerEngine.StartSpammingAsync(config);
+                cts.Cancel();
             }
-        }
 
-        private void OnEscapePressed()
-        {
-            if (_spammerEngine.IsSpamming)
+            if (monitorTask != null)
             {
-                _spammerEngine.StopSpamming();
-            }
-        }
-
-        private void OnSpamStarted()
-        {
-            _ui.ShowSpamStarted();
-        }
-
-        private void OnSpamCompleted()
-        {
-            _ui.ShowSpamCompleted();
-            _keyboardHook.SignalCompletion();
-        }
-
-        private void OnSpamCancelled()
-        {
-            _ui.ShowSpamCancelled();
-            _keyboardHook.SignalCompletion();
-        }
-
-        public void Dispose()
-        {
-            if (!_disposed)
-            {
-                _keyboardHook?.Dispose();
-                _spammerEngine?.Dispose();
-                _disposed = true;
+                try
+                {
+                    await monitorTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // expected when cancelled
+                }
             }
         }
     }
