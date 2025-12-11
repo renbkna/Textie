@@ -68,10 +68,10 @@ namespace Textie.Core.Cli
                         .StartAsync(async ctx =>
                         {
                             var task = ctx.AddTask(Markup.Escape(schedule.Name), maxValue: profile.Configuration.Count);
-                            void ProgressHandler(object? sender, SpamProgressEventArgs args)
+                            void ProgressHandler(int current, int total)
                             {
-                                task.Value = args.Current;
-                                task.Description = $"{Markup.Escape(schedule.Name)} {args.Current}/{args.Total}";
+                                task.Value = current;
+                                task.Description = $"{Markup.Escape(schedule.Name)} {current}/{total}";
                             }
 
                             _spammerEngine.ProgressChanged += ProgressHandler;

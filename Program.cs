@@ -30,8 +30,8 @@ namespace Textie
             builder.Services.AddSingleton<ConfigurationManager>();
             builder.Services.AddSingleton<IUserInterface, UserInterface>();
             builder.Services.AddSingleton<IHotkeyService, GlobalKeyboardHook>();
-            builder.Services.AddSingleton<ITextAutomationService, InputSimulatorAutomationService>();
-            builder.Services.AddSingleton<ITemplateRenderer, SmartFormatTemplateRenderer>();
+            builder.Services.AddSingleton<ITextAutomationService, NativeInputService>();
+            builder.Services.AddSingleton<ITemplateRenderer, FastTemplateRenderer>();
             builder.Services.AddSingleton<TextSpammerEngine>();
             builder.Services.AddSingleton<ScheduleManager>();
             builder.Services.AddSingleton<TextieApplication>();
@@ -49,13 +49,16 @@ namespace Textie
             using var host = builder.Build();
 
             var registrar = new SpectreTypeRegistrar(host.Services);
+#pragma warning disable IL3050
             var commandApp = new CommandApp(registrar);
+#pragma warning restore IL3050
             commandApp.Configure(config =>
             {
                 config.SetApplicationName("textie");
                 config.PropagateExceptions();
                 config.AddCommand<RunCommand>("run").WithDescription("Run automation headlessly.");
                 config.AddCommand<DryRunCommand>("dry-run").WithDescription("Preview templated messages without sending.");
+                config.AddCommand<BenchmarkCommand>("benchmark").WithDescription("Verify system performance and optimizations.");
                 config.AddBranch("profile", branch =>
                 {
                     branch.AddCommand<ProfileListCommand>("list").WithDescription("List saved profiles.");

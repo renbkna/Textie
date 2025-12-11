@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Textie.Core.Abstractions;
 
 namespace Textie.Core.Input
@@ -14,6 +15,7 @@ namespace Textie.Core.Input
         private const int VkReturn = 0x0D;
         private const int VkEscape = 0x1B;
 
+        private readonly ILogger<GlobalKeyboardHook> _logger;
         private LowLevelKeyboardProc? _hookProc;
         private IntPtr _hookId = IntPtr.Zero;
         private Thread? _hookThread;
@@ -21,6 +23,11 @@ namespace Textie.Core.Input
         private volatile bool _stopRequested;
         private TaskCompletionSource<HotkeyAction>? _signalSource;
         private bool _disposed;
+
+        public GlobalKeyboardHook(ILogger<GlobalKeyboardHook> logger)
+        {
+            _logger = logger;
+        }
 
         public Task InitializeAsync(CancellationToken cancellationToken)
         {
@@ -78,9 +85,9 @@ namespace Textie.Core.Input
                             break;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // ignore hook errors to avoid destabilizing host
+                    _logger.LogError(ex, "Error handling keyboard hook callback.");
                 }
             }
 
@@ -97,11 +104,19 @@ namespace Textie.Core.Input
                 return IntPtr.Zero;
             }
 
-            return SetWindowsHookEx(
+            var hookId = SetWindowsHookEx(
                 WhKeyboardLl,
                 proc,
                 GetModuleHandle(curModule.ModuleName),
                 0);
+
+            if (hookId == IntPtr.Zero)
+            {
+                int errorCode = Marshal.GetLastWin32Error();
+                _logger.LogError("Failed to set keyboard hook. Win32 Error Code: {ErrorCode}", errorCode);
+            }
+
+            return hookId;
         }
 
         private void EnsureHookThreadStarted()
@@ -164,7 +179,8 @@ namespace Textie.Core.Input
             _hookId = SetHook(_hookProc);
             if (_hookId == IntPtr.Zero)
             {
-                throw new InvalidOperationException("Failed to install global keyboard hook. Consider running as administrator.");
+                 int errorCode = Marshal.GetLastWin32Error();
+                 throw new InvalidOperationException($"Failed to install global keyboard hook. Win32 Error: {errorCode}");
             }
         }
 

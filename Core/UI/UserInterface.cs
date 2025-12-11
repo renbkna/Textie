@@ -126,13 +126,12 @@ namespace Textie.Core.UI
 
             ProgressTask? progressTask = null;
 
-            void OnProgress(object? sender, SpamProgressEventArgs e)
+            void OnProgress(int current, int total)
             {
                 if (progressTask != null)
                 {
-                    progressTask.Value = e.Current;
-                    var safeStatus = Markup.Escape(e.Status ?? string.Empty);
-                    progressTask.Description = $"[cyan]Sending[/] {e.Current}/{e.Total} ({safeStatus})";
+                    progressTask.Value = current;
+                    progressTask.Description = $"[cyan]Sending[/] {current}/{total}";
                 }
             }
 
@@ -231,7 +230,9 @@ namespace Textie.Core.UI
             AnsiConsole.Write(panel);
             if (exception != null)
             {
+#pragma warning disable IL3050
                 AnsiConsole.WriteException(exception, ExceptionFormats.ShortenEverything);
+#pragma warning restore IL3050
             }
         }
 

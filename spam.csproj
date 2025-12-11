@@ -1,22 +1,24 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <NoWarn>NU1701</NoWarn>
     <Nullable>enable</Nullable>
     <AssemblyName>Textie</AssemblyName>
     <RootNamespace>Textie</RootNamespace>
     <Description>Smart Text Automation Tool with Beautiful UI</Description>
-    <Company>Textie Team</Company>
+    <Company>Renbkna</Company>
     <Product>Textie</Product>
     <Copyright>Copyright © 2024</Copyright>
     <Version>2.0.0</Version>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <FileVersion>2.0.0.0</FileVersion>
+    <!-- Extreme Optimization -->
+    <PublishAot>true</PublishAot>
+    <StripSymbols>true</StripSymbols>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="InputSimulatorPlus" Version="1.0.7" />
     <PackageReference Include="Spectre.Console" Version="0.51.1" />
     <PackageReference Include="Spectre.Console.Cli" Version="0.51.1" />
     <PackageReference Include="Spectre.Console.ImageSharp" Version="0.51.1" />
@@ -25,7 +27,6 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.9" />
     <PackageReference Include="NCrontab" Version="3.4.0" />
-    <PackageReference Include="SmartFormat" Version="3.6.1" />
     <PackageReference Include="Vanara.PInvoke.User32" Version="4.2.1" />
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>

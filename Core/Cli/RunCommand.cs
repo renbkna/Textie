@@ -74,10 +74,10 @@ namespace Textie.Core.Cli
                     .StartAsync(async ctx =>
                     {
                         var task = ctx.AddTask("[cyan]Sending messages[/]", maxValue: configuration.Count);
-                        void ProgressHandler(object? sender, SpamProgressEventArgs args)
+                        void ProgressHandler(int current, int total)
                         {
-                            task.Value = args.Current;
-                            task.Description = $"[cyan]Sending[/] {args.Current}/{args.Total}";
+                            task.Value = current;
+                            task.Description = $"[cyan]Sending[/] {current}/{total}";
                         }
 
                         void FailureHandler(object? sender, Exception ex)
