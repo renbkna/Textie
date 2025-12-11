@@ -14,13 +14,6 @@ namespace Textie.Core.Infrastructure
 {
     public class ConfigurationStore : IConfigurationStore
     {
-        private static readonly JsonSerializerOptions SerializerOptions = new()
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault
-        };
-
         private readonly string _settingsPath;
         private readonly string _profilesPath;
         private readonly string _schedulesPath;
@@ -49,7 +42,7 @@ namespace Textie.Core.Infrastructure
                 }
 
                 await using var stream = File.OpenRead(_settingsPath);
-                var config = await JsonSerializer.DeserializeAsync<SpamConfiguration>(stream, SerializerOptions, cancellationToken);
+                var config = await JsonSerializer.DeserializeAsync(stream, TextieJsonContext.Default.SpamConfiguration, cancellationToken);
                 if (config == null || !config.IsValid())
                 {
                     _logger.LogWarning("Settings file invalid, using defaults.");
@@ -70,7 +63,7 @@ namespace Textie.Core.Infrastructure
             try
             {
                 await using var stream = File.Create(_settingsPath);
-                await JsonSerializer.SerializeAsync(stream, configuration, SerializerOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(stream, configuration, TextieJsonContext.Default.SpamConfiguration, cancellationToken);
                 _logger.LogInformation("Configuration saved to {Path}.", _settingsPath);
             }
             catch (Exception ex)
@@ -90,7 +83,7 @@ namespace Textie.Core.Infrastructure
                 }
 
                 await using var stream = File.OpenRead(_profilesPath);
-                var profiles = await JsonSerializer.DeserializeAsync<List<SpamProfile>>(stream, SerializerOptions, cancellationToken);
+                var profiles = await JsonSerializer.DeserializeAsync(stream, TextieJsonContext.Default.ListSpamProfile, cancellationToken);
                 return profiles ?? new List<SpamProfile>();
             }
             catch (Exception ex)
@@ -106,7 +99,7 @@ namespace Textie.Core.Infrastructure
             {
                 var list = profiles is List<SpamProfile> profileList ? profileList : new List<SpamProfile>(profiles);
                 await using var stream = File.Create(_profilesPath);
-                await JsonSerializer.SerializeAsync(stream, list, SerializerOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(stream, list, TextieJsonContext.Default.ListSpamProfile, cancellationToken);
                 _logger.LogInformation("Saved {Count} profiles to {Path}.", list.Count, _profilesPath);
             }
             catch (Exception ex)
@@ -125,7 +118,7 @@ namespace Textie.Core.Infrastructure
                 }
 
                 await using var stream = File.OpenRead(_schedulesPath);
-                var schedules = await JsonSerializer.DeserializeAsync<List<ScheduledRun>>(stream, SerializerOptions, cancellationToken);
+                var schedules = await JsonSerializer.DeserializeAsync(stream, TextieJsonContext.Default.ListScheduledRun, cancellationToken);
                 return schedules ?? new List<ScheduledRun>();
             }
             catch (Exception ex)
@@ -141,7 +134,7 @@ namespace Textie.Core.Infrastructure
             {
                 var list = schedules is List<ScheduledRun> scheduleList ? scheduleList : new List<ScheduledRun>(schedules);
                 await using var stream = File.Create(_schedulesPath);
-                await JsonSerializer.SerializeAsync(stream, list, SerializerOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(stream, list, TextieJsonContext.Default.ListScheduledRun, cancellationToken);
                 _logger.LogInformation("Saved {Count} schedules to {Path}.", list.Count, _schedulesPath);
             }
             catch (Exception ex)

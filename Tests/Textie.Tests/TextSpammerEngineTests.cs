@@ -27,7 +27,7 @@ namespace Textie.Tests
             };
 
             int lastProgress = 0;
-            engine.ProgressChanged += (_, args) => lastProgress = args.Current;
+            engine.ProgressChanged += (current, total) => lastProgress = current;
 
             var summary = await engine.StartSpammingAsync(config, CancellationToken.None);
 

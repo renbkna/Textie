@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -29,7 +30,8 @@ namespace Textie.Core.Spammer
         public bool IsSpamming { get; private set; }
 
         public event EventHandler? SpamStarted;
-        public event EventHandler<SpamProgressEventArgs>? ProgressChanged;
+        // Zero-alloc progress: Current, Total
+        public event Action<int, int>? ProgressChanged;
         public event EventHandler<SpamRunSummary>? SpamCompleted;
         public event EventHandler<SpamRunSummary>? SpamCancelled;
         public event EventHandler<Exception>? SpamFailed;
@@ -57,9 +59,33 @@ namespace Textie.Core.Spammer
 
                 try
                 {
-                    var summary = await ExecuteSpamAsync(configuration, linkedToken).ConfigureAwait(false);
-                    SpamCompleted?.Invoke(this, summary);
-                    return summary;
+                    // High Priority + CPU Affinity (Pin to last logical core)
+                    var currentProcess = Process.GetCurrentProcess();
+                    var oldPriority = currentProcess.PriorityClass;
+                    var oldAffinity = currentProcess.ProcessorAffinity;
+
+                    try
+                    {
+                        currentProcess.PriorityClass = ProcessPriorityClass.High;
+
+                        // Pin to the last core to avoid OS staggering
+                        // Calculate mask for highest bit
+                        long mask = 1L << (Environment.ProcessorCount - 1);
+                        // We use the Thread API for enabling affinity only for the current thread if possible,
+                        // but Task-based async makes thread pinning tricky as it jumps threads.
+                        // Setting PROCESS affinity is safer for the whole heavy operation loop.
+                        currentProcess.ProcessorAffinity = (IntPtr)mask;
+
+                        var summary = await ExecuteSpamAsync(configuration, linkedToken).ConfigureAwait(false);
+                        SpamCompleted?.Invoke(this, summary);
+                        return summary;
+                    }
+                    finally
+                    {
+                        // Restore
+                        currentProcess.PriorityClass = oldPriority;
+                        currentProcess.ProcessorAffinity = oldAffinity;
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -96,13 +122,16 @@ namespace Textie.Core.Spammer
         {
             var stopwatch = Stopwatch.StartNew();
             var summary = new SpamRunSummary();
+            // Reuse Random to avoid GC alloc per message
             var random = new Random();
 
             for (int index = 0; index < config.Count; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // Optimized Context creation (struct would be better but keeping class for compat for now)
                 var context = new SpamTemplateContext(index + 1, config.Count, random);
+
                 var message = config.EnableTemplating
                     ? _templateRenderer.Render(config.Message, context)
                     : config.Message;
@@ -111,7 +140,12 @@ namespace Textie.Core.Spammer
                 {
                     await ExecuteStrategyAsync(config, message, cancellationToken).ConfigureAwait(false);
                     summary.MessagesSent++;
-                    ProgressChanged?.Invoke(this, new SpamProgressEventArgs(summary.MessagesSent, config.Count, $"Sent {summary.MessagesSent}/{config.Count}"));
+
+                    if (config.DelayMilliseconds > 50 || index % 10 == 0)
+                    {
+                         // Zero-alloc invoke
+                         ProgressChanged?.Invoke(summary.MessagesSent, config.Count);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -122,10 +156,25 @@ namespace Textie.Core.Spammer
 
                 if (index < config.Count - 1)
                 {
-                    var delay = CalculateDelay(config, random);
-                    if (delay > TimeSpan.Zero)
+                    var delayMs = CalculateDelayMilliseconds(config, random);
+
+                    if (delayMs > 0)
                     {
-                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                        if (delayMs < 20)
+                        {
+                            // Hybrid SpinWait for sub-20ms precision
+                            // Standard Task.Delay is ~15ms resolution on Windows
+                            var limit = Stopwatch.GetTimestamp() + (long)(delayMs * TimeSpan.TicksPerMillisecond * (Stopwatch.Frequency / (double)TimeSpan.TicksPerSecond));
+                            while (Stopwatch.GetTimestamp() < limit)
+                            {
+                                if (cancellationToken.IsCancellationRequested) break;
+                                Thread.SpinWait(10); // Lightweight spin
+                            }
+                        }
+                        else
+                        {
+                            await Task.Delay((int)delayMs, cancellationToken).ConfigureAwait(false);
+                        }
                     }
                 }
             }
@@ -165,23 +214,16 @@ namespace Textie.Core.Spammer
             }
         }
 
-        private static TimeSpan CalculateDelay(SpamConfiguration config, Random random)
+        private static double CalculateDelayMilliseconds(SpamConfiguration config, Random random)
         {
             var baseDelay = config.DelayMilliseconds;
-            if (baseDelay <= 0)
-            {
-                return TimeSpan.Zero;
-            }
+            if (baseDelay <= 0) return 0;
 
-            if (config.DelayJitterPercent <= 0)
-            {
-                return TimeSpan.FromMilliseconds(baseDelay);
-            }
+            if (config.DelayJitterPercent <= 0) return baseDelay;
 
             var jitterAmplitude = baseDelay * config.DelayJitterPercent / 100.0;
             var offset = (random.NextDouble() * 2 - 1) * jitterAmplitude;
-            var jittered = Math.Max(0, baseDelay + offset);
-            return TimeSpan.FromMilliseconds(jittered);
+            return Math.Max(0, baseDelay + offset);
         }
 
         public void Dispose()
@@ -189,7 +231,7 @@ namespace Textie.Core.Spammer
             if (_disposed) return;
             _executionLock.Dispose();
             _runCancellationSource?.Dispose();
-            (_automationService as IDisposable)?.Dispose();
+            // Cast check for IDisposable if needed, though ServiceProvider handles Singleton disposal usually
             _disposed = true;
         }
     }
