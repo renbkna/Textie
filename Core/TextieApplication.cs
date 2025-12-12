@@ -7,8 +7,7 @@ using Textie.Core.Configuration;
 using Textie.Core.Spammer;
 using Textie.Core.UI;
 
-namespace Textie.Core
-{
+namespace Textie.Core;
     public class TextieApplication
     {
         private readonly ConfigurationManager _configurationManager;
@@ -118,7 +117,7 @@ namespace Textie.Core
         private async Task<SpamRunSummary?> ExecuteAutomationAsync(SpamConfiguration configuration, CancellationToken cancellationToken)
         {
             using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var focusLost = false;
+            int focusLostFlag = 0; // 0 = false, 1 = true (for Interlocked)
             CancellationTokenSource? focusMonitorCts = null;
             Task? focusMonitorTask = null;
 
@@ -143,7 +142,7 @@ namespace Textie.Core
                             var currentTitle = Input.WindowUtilities.GetForegroundWindowTitle();
                             if (string.IsNullOrWhiteSpace(currentTitle) || !currentTitle.Contains(expected, StringComparison.OrdinalIgnoreCase))
                             {
-                                focusLost = true;
+                                Interlocked.Exchange(ref focusLostFlag, 1);
                                 _spammerEngine.StopSpamming();
                                 focusMonitorCts.Cancel();
                             }
@@ -167,7 +166,7 @@ namespace Textie.Core
                     var summary = await spamTask.ConfigureAwait(false);
                     if (summary != null)
                     {
-                        summary.FocusLost = focusLost;
+                        summary.FocusLost = Interlocked.CompareExchange(ref focusLostFlag, 0, 0) == 1;
                     }
                     await CleanupFocusMonitorAsync(focusMonitorCts, focusMonitorTask).ConfigureAwait(false);
                     return summary;
@@ -177,29 +176,17 @@ namespace Textie.Core
                 switch (action)
                 {
                     case HotkeyAction.Stop:
-                        _spammerEngine.StopSpamming();
-                        linkedCancellation.Cancel();
-                        {
-                            var summary = await spamTask.ConfigureAwait(false);
-                            if (summary != null)
-                            {
-                                summary.FocusLost = focusLost;
-                            }
-                            await CleanupFocusMonitorAsync(focusMonitorCts, focusMonitorTask).ConfigureAwait(false);
-                            return summary;
-                        }
                     case HotkeyAction.Exit:
                         _spammerEngine.StopSpamming();
                         linkedCancellation.Cancel();
+                        var stopSummary = await spamTask.ConfigureAwait(false);
+                        if (stopSummary != null)
                         {
-                            var summary = await spamTask.ConfigureAwait(false);
-                            if (summary != null)
-                            {
-                                summary.FocusLost = focusLost;
-                            }
-                            await CleanupFocusMonitorAsync(focusMonitorCts, focusMonitorTask).ConfigureAwait(false);
-                            return summary;
+                            stopSummary.FocusLost = Interlocked.CompareExchange(ref focusLostFlag, 0, 0) == 1;
                         }
+                        await CleanupFocusMonitorAsync(focusMonitorCts, focusMonitorTask).ConfigureAwait(false);
+                        return stopSummary;
+
                     case HotkeyAction.Start:
                     case HotkeyAction.None:
                         waitTask = _hotkeys.WaitForNextAsync(linkedCancellation.Token);
@@ -228,4 +215,3 @@ namespace Textie.Core
             }
         }
     }
-}

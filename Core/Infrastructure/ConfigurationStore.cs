@@ -10,8 +10,7 @@ using Textie.Core.Abstractions;
 using Textie.Core.Configuration;
 using Textie.Core.Scheduling;
 
-namespace Textie.Core.Infrastructure
-{
+namespace Textie.Core.Infrastructure;
     public class ConfigurationStore : IConfigurationStore
     {
         private readonly string _settingsPath;
@@ -69,6 +68,7 @@ namespace Textie.Core.Infrastructure
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to save configuration to {Path}.", _settingsPath);
+                throw new InvalidOperationException($"Failed to save configuration to {_settingsPath}", ex);
             }
         }
 
@@ -105,6 +105,7 @@ namespace Textie.Core.Infrastructure
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to save profiles to {Path}.", _profilesPath);
+                throw new InvalidOperationException($"Failed to save profiles to {_profilesPath}", ex);
             }
         }
 
@@ -140,7 +141,7 @@ namespace Textie.Core.Infrastructure
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to save schedules to {Path}.", _schedulesPath);
+                throw new InvalidOperationException($"Failed to save schedules to {_schedulesPath}", ex);
             }
         }
     }
-}

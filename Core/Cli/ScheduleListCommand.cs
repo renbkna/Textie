@@ -5,8 +5,7 @@ using Spectre.Console;
 using Spectre.Console.Cli;
 using Textie.Core.Scheduling;
 
-namespace Textie.Core.Cli
-{
+namespace Textie.Core.Cli;
     public class ScheduleListCommand : AsyncCommand
     {
         private readonly ScheduleManager _scheduleManager;
@@ -48,4 +47,3 @@ namespace Textie.Core.Cli
             return 0;
         }
     }
-}

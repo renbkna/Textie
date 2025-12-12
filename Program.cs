@@ -28,6 +28,14 @@ namespace Textie
 
             builder.Services.AddSingleton<IConfigurationStore, ConfigurationStore>();
             builder.Services.AddSingleton<ConfigurationManager>();
+
+            // UI Registration
+            builder.Services.AddSingleton<UiTheme>();
+            builder.Services.AddSingleton<Core.UI.AppShell>();
+            builder.Services.AddSingleton<Core.UI.Views.ConfigurationSummaryView>();
+            builder.Services.AddSingleton<Core.UI.Views.LiveDashboardView>();
+            builder.Services.AddSingleton<Core.UI.Views.RunSummaryView>();
+            builder.Services.AddSingleton<Core.UI.Views.ConfigurationWizardView>();
             builder.Services.AddSingleton<IUserInterface, UserInterface>();
             builder.Services.AddSingleton<IHotkeyService, GlobalKeyboardHook>();
             builder.Services.AddSingleton<ITextAutomationService, NativeInputService>();

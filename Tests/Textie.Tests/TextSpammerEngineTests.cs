@@ -21,7 +21,7 @@ namespace Textie.Tests
             {
                 Message = "Hello",
                 Count = 3,
-                DelayMilliseconds = 0,
+                DelayMilliseconds = 51, // > 50 to ensure ProgressChanged fires for every message
                 Strategy = SpamStrategy.SendTextOnly,
                 SendSubmitKey = false
             };
@@ -41,20 +41,20 @@ namespace Textie.Tests
         [Fact]
         public async Task StopSpamming_CancelsRun()
         {
-            var automation = new FakeAutomationService(delayMilliseconds: 20);
+            var automation = new FakeAutomationService(delayMilliseconds: 50);
             var renderer = new PassThroughTemplateRenderer();
             var engine = new TextSpammerEngine(automation, renderer, NullLogger<TextSpammerEngine>.Instance);
             var config = new SpamConfiguration
             {
                 Message = "Hello",
                 Count = 100,
-                DelayMilliseconds = 10,
+                DelayMilliseconds = 20,
                 Strategy = SpamStrategy.SendTextOnly,
                 SendSubmitKey = false
             };
 
             var runTask = engine.StartSpammingAsync(config, CancellationToken.None);
-            await Task.Delay(50);
+            await Task.Delay(150);
             engine.StopSpamming();
 
             var summary = await runTask;

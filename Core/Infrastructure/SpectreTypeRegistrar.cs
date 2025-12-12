@@ -2,8 +2,7 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console.Cli;
 
-namespace Textie.Core.Infrastructure
-{
+namespace Textie.Core.Infrastructure;
     public sealed class SpectreTypeRegistrar : ITypeRegistrar
     {
         private readonly IServiceProvider _provider;
@@ -53,4 +52,3 @@ namespace Textie.Core.Infrastructure
             _scope.Dispose();
         }
     }
-}

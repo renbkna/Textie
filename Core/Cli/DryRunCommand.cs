@@ -7,8 +7,7 @@ using Textie.Core.Configuration;
 using Textie.Core.Spammer;
 using Textie.Core.Templates;
 
-namespace Textie.Core.Cli
-{
+namespace Textie.Core.Cli;
     public class DryRunCommand : AsyncCommand<DryRunCommand.Settings>
     {
         private readonly ConfigurationManager _configurationManager;
@@ -49,4 +48,3 @@ namespace Textie.Core.Cli
             public int SampleCount { get; init; } = 5;
         }
     }
-}

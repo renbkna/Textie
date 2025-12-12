@@ -3,8 +3,7 @@ using System.Text.Json.Serialization;
 using Textie.Core.Configuration;
 using Textie.Core.Scheduling;
 
-namespace Textie.Core.Infrastructure
-{
+namespace Textie.Core.Infrastructure;
     [JsonSourceGenerationOptions(
         WriteIndented = true,
         PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -15,4 +14,3 @@ namespace Textie.Core.Infrastructure
     internal partial class TextieJsonContext : JsonSerializerContext
     {
     }
-}

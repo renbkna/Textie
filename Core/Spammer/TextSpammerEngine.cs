@@ -8,8 +8,7 @@ using Textie.Core.Abstractions;
 using Textie.Core.Configuration;
 using Textie.Core.Templates;
 
-namespace Textie.Core.Spammer
-{
+namespace Textie.Core.Spammer;
     public sealed class TextSpammerEngine : IDisposable
     {
         private readonly ITextAutomationService _automationService;
@@ -143,8 +142,8 @@ namespace Textie.Core.Spammer
 
                     if (config.DelayMilliseconds > 50 || index % 10 == 0)
                     {
-                         // Zero-alloc invoke
-                         ProgressChanged?.Invoke(summary.MessagesSent, config.Count);
+                        // Zero-alloc invoke
+                        ProgressChanged?.Invoke(summary.MessagesSent, config.Count);
                     }
                 }
                 catch (Exception ex)
@@ -189,12 +188,6 @@ namespace Textie.Core.Spammer
             switch (config.Strategy)
             {
                 case SpamStrategy.SendTextAndEnter:
-                    await _automationService.SendTextAsync(message, cancellationToken).ConfigureAwait(false);
-                    if (config.SendSubmitKey)
-                    {
-                        await _automationService.PressEnterAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                    break;
                 case SpamStrategy.SendTextOnly:
                     await _automationService.SendTextAsync(message, cancellationToken).ConfigureAwait(false);
                     if (config.SendSubmitKey)
@@ -235,4 +228,3 @@ namespace Textie.Core.Spammer
             _disposed = true;
         }
     }
-}

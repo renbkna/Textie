@@ -1,22 +1,12 @@
 using System;
 
-namespace Textie.Core.Spammer
-{
-    public class SpamTemplateContext
-    {
-        public SpamTemplateContext(int index, int total, Random random)
-        {
-            Index = index;
-            Total = total;
-            Timestamp = DateTimeOffset.UtcNow;
-            Random = random;
-            MessageGuid = Guid.NewGuid();
-        }
+namespace Textie.Core.Spammer;
 
-        public int Index { get; }
-        public int Total { get; }
-        public DateTimeOffset Timestamp { get; }
-        public Random Random { get; }
-        public Guid MessageGuid { get; }
-    }
+public sealed class SpamTemplateContext(int index, int total, Random random)
+{
+    public int Index { get; } = index;
+    public int Total { get; } = total;
+    public Random Random { get; } = random;
+    public DateTimeOffset Timestamp { get; } = DateTimeOffset.UtcNow;
+    public Guid MessageGuid { get; } = Guid.NewGuid();
 }

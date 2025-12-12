@@ -6,16 +6,16 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Textie.Core.Abstractions;
 
-namespace Textie.Core.Configuration
-{
-    public class ConfigurationManager
+namespace Textie.Core.Configuration;
+    public class ConfigurationManager : IDisposable
     {
         private readonly IConfigurationStore _store;
         private readonly ILogger<ConfigurationManager> _logger;
         private readonly SemaphoreSlim _syncLock = new(1, 1);
+        private bool _disposed;
 
         private SpamConfiguration _currentConfiguration = new();
-        private List<SpamProfile> _profiles = new();
+        private List<SpamProfile> _profiles = [];
 
         public ConfigurationManager(IConfigurationStore store, ILogger<ConfigurationManager> logger)
         {
@@ -27,6 +27,8 @@ namespace Textie.Core.Configuration
 
         public async Task InitializeAsync(CancellationToken cancellationToken)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
             await _syncLock.WaitAsync(cancellationToken);
             try
             {
@@ -42,7 +44,8 @@ namespace Textie.Core.Configuration
 
         public async Task UpdateConfigurationAsync(SpamConfiguration configuration, CancellationToken cancellationToken)
         {
-            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentNullException.ThrowIfNull(configuration);
             if (!configuration.IsValid()) throw new ArgumentException("Configuration is invalid", nameof(configuration));
 
             await _syncLock.WaitAsync(cancellationToken);
@@ -59,6 +62,8 @@ namespace Textie.Core.Configuration
 
         public async Task<IReadOnlyList<SpamProfile>> GetProfilesAsync(CancellationToken cancellationToken)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
             await _syncLock.WaitAsync(cancellationToken);
             try
             {
@@ -78,7 +83,8 @@ namespace Textie.Core.Configuration
 
         public async Task SaveProfileAsync(SpamProfile profile, CancellationToken cancellationToken)
         {
-            if (profile == null) throw new ArgumentNullException(nameof(profile));
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentNullException.ThrowIfNull(profile);
             if (!profile.Configuration.IsValid()) throw new ArgumentException("Profile configuration invalid", nameof(profile));
 
             await _syncLock.WaitAsync(cancellationToken);
@@ -112,6 +118,7 @@ namespace Textie.Core.Configuration
 
         public async Task DeleteProfileAsync(string profileName, CancellationToken cancellationToken)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             if (string.IsNullOrWhiteSpace(profileName)) return;
 
             await _syncLock.WaitAsync(cancellationToken);
@@ -131,6 +138,8 @@ namespace Textie.Core.Configuration
 
         public async Task ResetToDefaultsAsync(CancellationToken cancellationToken)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
             await _syncLock.WaitAsync(cancellationToken);
             try
             {
@@ -142,5 +151,11 @@ namespace Textie.Core.Configuration
                 _syncLock.Release();
             }
         }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _syncLock.Dispose();
+            _disposed = true;
+        }
     }
-}

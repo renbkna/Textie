@@ -4,8 +4,7 @@ using Spectre.Console;
 using Spectre.Console.Cli;
 using Textie.Core.Scheduling;
 
-namespace Textie.Core.Cli
-{
+namespace Textie.Core.Cli;
     public class ScheduleRemoveCommand : AsyncCommand<ScheduleRemoveCommand.Settings>
     {
         private readonly ScheduleManager _scheduleManager;
@@ -35,4 +34,3 @@ namespace Textie.Core.Cli
             public string Name { get; init; } = string.Empty;
         }
     }
-}
