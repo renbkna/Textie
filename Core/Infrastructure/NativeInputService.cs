@@ -4,8 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Textie.Core.Abstractions;
 
-namespace Textie.Core.Infrastructure
-{
+namespace Textie.Core.Infrastructure;
     public sealed class NativeInputService : ITextAutomationService
     {
         public Task SendTextAsync(string text, CancellationToken cancellationToken)
@@ -90,7 +89,7 @@ namespace Textie.Core.Infrastructure
 
                 if (perCharacterDelayMilliseconds > 0)
                 {
-                   await Delay(perCharacterDelayMilliseconds, cancellationToken).ConfigureAwait(false);
+                    await Delay(perCharacterDelayMilliseconds, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -204,4 +203,3 @@ namespace Textie.Core.Infrastructure
             SCANCODE = 0x0008
         }
     }
-}

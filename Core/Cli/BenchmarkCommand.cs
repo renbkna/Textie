@@ -10,8 +10,7 @@ using Textie.Core.Spammer;
 using Textie.Core.Templates;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace Textie.Core.Cli
-{
+namespace Textie.Core.Cli;
     public class BenchmarkCommand : AsyncCommand
     {
         public override async Task<int> ExecuteAsync(CommandContext context)
@@ -43,7 +42,7 @@ namespace Textie.Core.Cli
             }
             catch (Exception ex)
             {
-                 AnsiConsole.MarkupLine($"   [red]FAIL:[/] Affinity Check Error: {ex.Message}");
+                AnsiConsole.MarkupLine($"   [red]FAIL:[/] Affinity Check Error: {ex.Message}");
             }
             AnsiConsole.WriteLine();
 
@@ -101,7 +100,7 @@ namespace Textie.Core.Cli
             // create distinct engine for bench
             var nullInput = new NullAutomationService();
             var renderer = new FastTemplateRenderer();
-            var engine = new TextSpammerEngine(nullInput, renderer, NullLogger<TextSpammerEngine>.Instance);
+            using var engine = new TextSpammerEngine(nullInput, renderer, NullLogger<TextSpammerEngine>.Instance);
 
             var config = new SpamConfiguration
             {
@@ -129,4 +128,3 @@ namespace Textie.Core.Cli
             return 0;
         }
     }
-}

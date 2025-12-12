@@ -1,8 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace Textie.Core.Configuration
-{
+namespace Textie.Core.Configuration;
     public class SpamConfiguration
     {
         [Required]
@@ -26,7 +25,7 @@ namespace Textie.Core.Configuration
         public bool SendSubmitKey { get; set; } = true;
 
         public bool LockTargetWindow { get; set; }
-        
+
         public string? TargetWindowTitle { get; set; }
 
         public bool EnableTemplating { get; set; } = true;
@@ -71,4 +70,3 @@ namespace Textie.Core.Configuration
         public override string ToString() =>
             $"Message: \"{Message}\", Count: {Count}, Delay: {DelayMilliseconds}ms, Strategy: {Strategy}";
     }
-}

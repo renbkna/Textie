@@ -5,8 +5,7 @@ using System.Threading.Tasks;
 using Textie.Core.Configuration;
 using Textie.Core.Spammer;
 
-namespace Textie.Core.UI
-{
+namespace Textie.Core.UI;
     public enum NextAction
     {
         RunAgain,
@@ -27,4 +26,3 @@ namespace Textie.Core.UI
         void ShowError(string message, System.Exception? exception = null);
         void Shutdown();
     }
-}

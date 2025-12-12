@@ -7,14 +7,14 @@ using Microsoft.Extensions.Logging;
 using NCrontab;
 using Textie.Core.Abstractions;
 
-namespace Textie.Core.Scheduling
-{
-    public class ScheduleManager
+namespace Textie.Core.Scheduling;
+    public class ScheduleManager : IDisposable
     {
         private readonly IConfigurationStore _store;
         private readonly ILogger<ScheduleManager> _logger;
         private readonly SemaphoreSlim _sync = new(1, 1);
-        private List<ScheduledRun> _schedules = new();
+        private List<ScheduledRun> _schedules = [];
+        private bool _disposed;
 
         public ScheduleManager(IConfigurationStore store, ILogger<ScheduleManager> logger)
         {
@@ -24,6 +24,8 @@ namespace Textie.Core.Scheduling
 
         public async Task InitializeAsync(CancellationToken cancellationToken)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
             await _sync.WaitAsync(cancellationToken);
             try
             {
@@ -38,6 +40,8 @@ namespace Textie.Core.Scheduling
 
         public async Task<IReadOnlyList<ScheduledRun>> GetSchedulesAsync(CancellationToken cancellationToken)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
             await _sync.WaitAsync(cancellationToken);
             try
             {
@@ -51,7 +55,8 @@ namespace Textie.Core.Scheduling
 
         public async Task AddOrUpdateAsync(ScheduledRun schedule, CancellationToken cancellationToken)
         {
-            if (schedule == null) throw new ArgumentNullException(nameof(schedule));
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentNullException.ThrowIfNull(schedule);
             ValidateCron(schedule.CronExpression);
 
             await _sync.WaitAsync(cancellationToken);
@@ -81,6 +86,7 @@ namespace Textie.Core.Scheduling
 
         public async Task RemoveAsync(string name, CancellationToken cancellationToken)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             if (string.IsNullOrWhiteSpace(name)) return;
 
             await _sync.WaitAsync(cancellationToken);
@@ -127,5 +133,11 @@ namespace Textie.Core.Scheduling
             LastRun = schedule.LastRun,
             NextRun = schedule.NextRun
         };
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _sync.Dispose();
+            _disposed = true;
+        }
     }
-}

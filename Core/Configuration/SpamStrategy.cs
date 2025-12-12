@@ -1,9 +1,8 @@
-namespace Textie.Core.Configuration
+namespace Textie.Core.Configuration;
+
+public enum SpamStrategy
 {
-    public enum SpamStrategy
-    {
-        SendTextAndEnter,
-        SendTextOnly,
-        TypePerCharacter
-    }
+    SendTextAndEnter,
+    SendTextOnly,
+    TypePerCharacter
 }

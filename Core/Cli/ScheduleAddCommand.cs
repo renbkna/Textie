@@ -1,19 +1,22 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Spectre.Console;
 using Spectre.Console.Cli;
+using Textie.Core.Configuration;
 using Textie.Core.Scheduling;
 
-namespace Textie.Core.Cli
-{
+namespace Textie.Core.Cli;
     public class ScheduleAddCommand : AsyncCommand<ScheduleAddCommand.Settings>
     {
         private readonly ScheduleManager _scheduleManager;
+        private readonly ConfigurationManager _configurationManager;
 
-        public ScheduleAddCommand(ScheduleManager scheduleManager)
+        public ScheduleAddCommand(ScheduleManager scheduleManager, ConfigurationManager configurationManager)
         {
             _scheduleManager = scheduleManager;
+            _configurationManager = configurationManager;
         }
 
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
@@ -24,7 +27,16 @@ namespace Textie.Core.Cli
                 return -1;
             }
 
+            await _configurationManager.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
             await _scheduleManager.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
+
+            // Validate that the referenced profile exists
+            var profiles = await _configurationManager.GetProfilesAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!profiles.Any(p => string.Equals(p.Name, settings.Profile, StringComparison.OrdinalIgnoreCase)))
+            {
+                AnsiConsole.MarkupLine($"[red]Profile '{Markup.Escape(settings.Profile)}' not found. Create the profile first.[/]");
+                return -1;
+            }
 
             var nextRun = ScheduleManager.ComputeNextRun(settings.Cron, DateTimeOffset.Now);
             var scheduledRun = new ScheduledRun
@@ -56,4 +68,3 @@ namespace Textie.Core.Cli
             public bool Disabled { get; init; }
         }
     }
-}

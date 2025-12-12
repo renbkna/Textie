@@ -4,8 +4,7 @@ using Spectre.Console;
 using Spectre.Console.Cli;
 using Textie.Core.Configuration;
 
-namespace Textie.Core.Cli
-{
+namespace Textie.Core.Cli;
     public class ProfileSaveCommand : AsyncCommand<ProfileSaveCommand.Settings>
     {
         private readonly ConfigurationManager _configurationManager;
@@ -46,4 +45,3 @@ namespace Textie.Core.Cli
             public string? Notes { get; init; }
         }
     }
-}

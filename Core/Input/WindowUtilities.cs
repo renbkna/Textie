@@ -2,8 +2,7 @@ using System;
 using System.Text;
 using Vanara.PInvoke;
 
-namespace Textie.Core.Input
-{
+namespace Textie.Core.Input;
     public static class WindowUtilities
     {
         public static string? GetForegroundWindowTitle()
@@ -24,4 +23,3 @@ namespace Textie.Core.Input
             return buffer.ToString();
         }
     }
-}

@@ -2,7 +2,7 @@
 
 Windows-first text automation for power users and QA engineers. Textie delivers an advanced Spectre.Console terminal experience, global hotkeys, templated messaging, profiles, and a CLI/scheduler for unattended runs.
 
-[![.NET](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/)
+[![.NET](https://img.shields.io/badge/.NET-10.0-blue.svg)](https://dotnet.microsoft.com/)
 [![Windows](https://img.shields.io/badge/OS-Windows-blue.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -33,7 +33,7 @@ dotnet build
 dotnet run
 ```
 
-> **Note:** The project targets `net9.0-windows` and depends on `Microsoft.WindowsDesktop.App`. Build and runtime require Windows or a Windows-targeting SDK installation.
+> **Note:** The project targets `net10.0-windows` and depends on `Microsoft.WindowsDesktop.App`. Build and runtime require Windows or a Windows-targeting SDK installation.
 
 ## Interactive Experience
 
@@ -68,7 +68,7 @@ Key commands:
 ## Automation Strategies & Options
 
 - **Strategies** – `SendTextAndEnter`, `SendTextOnly`, `TypePerCharacter`.
-- **Templating** – SmartFormat-based placeholders (`{index}`, `{total}`, `{timestamp}`, `{guid}`, `{random}`, `{rand}`).
+- **Templating** – Built-in fast template renderer with placeholders (`{index}`, `{total}`, `{timestamp}`, `{guid}`, `{random}`, `{rand}`).
 - **Timing** – Base delay (0–120,000ms) with optional jitter (0–100%) and per-character delays for humanized typing.
 - **Submit Key** – Toggle Enter submission regardless of strategy.
 - **Focus control** – Optional target window title + focus lock reminder before and during runs.
@@ -89,10 +89,10 @@ Files are written with indentation, ignore defaults on failure, and are resilien
 │   ├── Abstractions/                 # Interfaces (hotkeys, template, config)
 │   ├── Configuration/                # Configuration models + manager
 │   ├── Input/                        # Global keyboard hook implementing IHotkeyService
-│   ├── Infrastructure/               # Config store, InputSimulator adapter, Spectre registrar
+│   ├── Infrastructure/               # Config store, NativeInputService (P/Invoke), Spectre registrar
 │   ├── Scheduling/                   # Schedule manager and models (NCrontab)
 │   ├── Spammer/                      # Engine, progress events, summaries, templating context
-│   ├── Templates/                    # SmartFormat renderer implementation
+│   ├── Templates/                    # FastTemplateRenderer (zero-alloc, span-based)
 │   └── UI/                           # IUserInterface + Spectre implementation (wizard, dashboard, run view)
 ├── Core/Cli/                         # CLI command handlers (run, dry-run, profile, schedule)
 └── Tests/Textie.Tests/               # xUnit project covering engine behaviour
@@ -102,7 +102,7 @@ Files are written with indentation, ignore defaults on failure, and are resilien
 
 - **TextieApplication** orchestrates configuration manager, UI, hotkeys, engine, and logging.
 - **ConfigurationManager** & **ConfigurationStore** persist settings/profiles/schedules via async JSON.
-- **TextSpammerEngine** consumes `ITextAutomationService` (InputSimulatorPlus) and `ITemplateRenderer` to drive automation with cancellation and jitter.
+- **TextSpammerEngine** consumes `ITextAutomationService` (native P/Invoke via `NativeInputService`) and `ITemplateRenderer` to drive automation with cancellation and jitter.
 - **UserInterface** (Spectre) renders wizard, dashboards, and progress; hosts CLI progress output for headless runs via shared engine events.
 - **Hotkey Service** uses Win32 low-level hook with TaskCompletionSource signalling (no polling loops).
 - **CLI** commands reuse DI-registered services for headless operations and scheduling maintenance.
@@ -124,14 +124,12 @@ dotnet test Tests/Textie.Tests/Textie.Tests.csproj
 - [Spectre.Console 0.51.1](https://spectreconsole.net/) (core TUI)
 - [Spectre.Console.Cli 0.51.1](https://spectreconsole.net/) (CLI surface)
 - [Spectre.Console.ImageSharp 0.51.1](https://spectreconsole.net/) (optional branding)
-- [InputSimulatorPlus 1.0.7](https://github.com/GregsStack/InputSimulatorPlus)
 - [Microsoft.Extensions.Configuration.Json 9.0.9]
 - [Microsoft.Extensions.DependencyInjection 9.0.9]
 - [Microsoft.Extensions.Hosting 9.0.9]
 - [Microsoft.Extensions.Logging.Console 9.0.9]
-- [SmartFormat 3.6.1]
 - [NCrontab 3.4.0]
-- [Vanara.PInvoke.User32 4.2.1]
+- [Vanara.PInvoke.User32 4.2.1] (Win32 API wrappers)
 - [xUnit 2.9.2] (tests)
 
 ## Troubleshooting
@@ -142,7 +140,7 @@ dotnet test Tests/Textie.Tests/Textie.Tests.csproj
 | No input delivered | Confirm target window focus; increase delays; disable focus lock if target changes title during run. |
 | Scheduler not executing | `schedule list` to confirm cron and next run; ensure schedule is enabled; run CLI with `dotnet run -- schedule list`. |
 | CLI fails on Linux/macOS | CLI is Windows-focused; ensure Windows Desktop runtime present. |
-| Tests fail to run | Install .NET 9 Windows Desktop runtime or run tests on Windows environment. |
+| Tests fail to run | Install .NET 10 Windows Desktop runtime or run tests on Windows environment. |
 
 ## Contributing
 
@@ -158,6 +156,6 @@ Textie is released under the [MIT License](LICENSE).
 ## Acknowledgements
 
 - Spectre.Console team for an exceptional terminal toolkit.
-- InputSimulatorPlus contributors for reliable automation primitives.
-- Vanara for modern P/Invoke wrappers.
+
+- Vanara for modern P/Invoke wrappers used in keyboard input automation.
 - The wider .NET community for tooling and inspiration.

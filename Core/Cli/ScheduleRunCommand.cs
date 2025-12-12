@@ -8,8 +8,7 @@ using Textie.Core.Configuration;
 using Textie.Core.Scheduling;
 using Textie.Core.Spammer;
 
-namespace Textie.Core.Cli
-{
+namespace Textie.Core.Cli;
     public class ScheduleRunCommand : AsyncCommand
     {
         private readonly ConfigurationManager _configurationManager;
@@ -32,81 +31,80 @@ namespace Textie.Core.Cli
             var profiles = await _configurationManager.GetProfilesAsync(CancellationToken.None).ConfigureAwait(false);
             var dueSchedules = schedules.Where(s => s.Enabled && (!s.NextRun.HasValue || s.NextRun <= DateTimeOffset.Now)).ToList();
 
-            if (!dueSchedules.Any())
+            if (dueSchedules.Count == 0)
             {
                 AnsiConsole.MarkupLine("[grey62]No schedules are due.[/]");
                 return 0;
             }
 
             using var cts = new CancellationTokenSource();
-            Console.CancelKeyPress += (_, e) =>
+            ConsoleCancelEventHandler cancelHandler = (_, e) =>
             {
                 e.Cancel = true;
                 cts.Cancel();
                 _spammerEngine.StopSpamming();
             };
 
-            foreach (var schedule in dueSchedules)
+            Console.CancelKeyPress += cancelHandler;
+            try
             {
-                if (cts.IsCancellationRequested)
+                foreach (var schedule in dueSchedules)
                 {
-                    break;
-                }
+                    if (cts.IsCancellationRequested)
+                    {
+                        break;
+                    }
 
-                var profile = profiles.FirstOrDefault(p => string.Equals(p.Name, schedule.ProfileName, StringComparison.OrdinalIgnoreCase));
-                if (profile == null)
-                {
-                    AnsiConsole.MarkupLine($"[red]Profile '{Markup.Escape(schedule.ProfileName)}' not found for schedule '{Markup.Escape(schedule.Name)}'.[/]");
-                    continue;
-                }
+                    var profile = profiles.FirstOrDefault(p => string.Equals(p.Name, schedule.ProfileName, StringComparison.OrdinalIgnoreCase));
+                    if (profile == null)
+                    {
+                        AnsiConsole.MarkupLine($"[red]Profile '{Markup.Escape(schedule.ProfileName)}' not found for schedule '{Markup.Escape(schedule.Name)}'.[/]");
+                        continue;
+                    }
 
-                AnsiConsole.MarkupLine($"[cyan]Running schedule[/] {Markup.Escape(schedule.Name)} -> profile '{Markup.Escape(schedule.ProfileName)}'.");
-                try
-                {
-                    await AnsiConsole.Progress()
-                        .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new SpinnerColumn())
-                        .StartAsync(async ctx =>
-                        {
-                            var task = ctx.AddTask(Markup.Escape(schedule.Name), maxValue: profile.Configuration.Count);
-                            void ProgressHandler(int current, int total)
+                    AnsiConsole.MarkupLine($"[cyan]Running schedule[/] {Markup.Escape(schedule.Name)} -> profile '{Markup.Escape(schedule.ProfileName)}'.");
+                    try
+                    {
+                        await AnsiConsole.Progress()
+                            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new SpinnerColumn())
+                            .StartAsync(async ctx =>
                             {
-                                task.Value = current;
-                                task.Description = $"{Markup.Escape(schedule.Name)} {current}/{total}";
-                            }
+                                var task = ctx.AddTask(Markup.Escape(schedule.Name), maxValue: profile.Configuration.Count);
+                                void ProgressHandler(int current, int total)
+                                {
+                                    task.Value = current;
+                                    task.Description = $"{Markup.Escape(schedule.Name)} {current}/{total}";
+                                }
 
-                            _spammerEngine.ProgressChanged += ProgressHandler;
-                            try
-                            {
-                                await _spammerEngine.StartSpammingAsync(profile.Configuration.Clone(), cts.Token).ConfigureAwait(false);
-                                task.Value = task.MaxValue;
-                            }
-                            finally
-                            {
-                                _spammerEngine.ProgressChanged -= ProgressHandler;
-                            }
-                        }).ConfigureAwait(false);
+                                _spammerEngine.ProgressChanged += ProgressHandler;
+                                try
+                                {
+                                    await _spammerEngine.StartSpammingAsync(profile.Configuration.Clone(), cts.Token).ConfigureAwait(false);
+                                    task.Value = task.MaxValue;
+                                }
+                                finally
+                                {
+                                    _spammerEngine.ProgressChanged -= ProgressHandler;
+                                }
+                            }).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        AnsiConsole.MarkupLine("[yellow]Schedule execution cancelled.[/]");
+                        break;
+                    }
+
+                    var runAt = DateTimeOffset.Now;
+                    schedule.LastRun = runAt;
+                    schedule.NextRun = ScheduleManager.ComputeNextRun(schedule.CronExpression, runAt);
+                    await _scheduleManager.AddOrUpdateAsync(schedule, CancellationToken.None).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException)
-                {
-                    AnsiConsole.MarkupLine("[yellow]Schedule execution cancelled.[/]");
-                    break;
-                }
-
-                await _configurationManager.SaveProfileAsync(new SpamProfile
-                {
-                    Name = profile.Name,
-                    Notes = profile.Notes,
-                    Configuration = profile.Configuration.Clone()
-                }, CancellationToken.None).ConfigureAwait(false);
-
-                var runAt = DateTimeOffset.Now;
-                schedule.LastRun = runAt;
-                schedule.NextRun = ScheduleManager.ComputeNextRun(schedule.CronExpression, runAt);
-                await _scheduleManager.AddOrUpdateAsync(schedule, CancellationToken.None).ConfigureAwait(false);
-                profiles = await _configurationManager.GetProfilesAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancelHandler;
             }
 
             return 0;
         }
     }
-}

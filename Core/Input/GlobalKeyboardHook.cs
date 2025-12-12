@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Textie.Core.Abstractions;
 
-namespace Textie.Core.Input
-{
+namespace Textie.Core.Input;
     public sealed class GlobalKeyboardHook : IHotkeyService
     {
         private const int WhKeyboardLl = 13;
@@ -168,31 +167,6 @@ namespace Textie.Core.Input
             }
         }
 
-        private void EnsureHookInstalled()
-        {
-            if (_hookId != IntPtr.Zero)
-            {
-                return;
-            }
-
-            _hookProc ??= HookCallback;
-            _hookId = SetHook(_hookProc);
-            if (_hookId == IntPtr.Zero)
-            {
-                 int errorCode = Marshal.GetLastWin32Error();
-                 throw new InvalidOperationException($"Failed to install global keyboard hook. Win32 Error: {errorCode}");
-            }
-        }
-
-        private void UninstallHook()
-        {
-            var handle = Interlocked.Exchange(ref _hookId, IntPtr.Zero);
-            if (handle != IntPtr.Zero)
-            {
-                UnhookWindowsHookEx(handle);
-            }
-        }
-
         public void Dispose()
         {
             if (_disposed) return;
@@ -265,4 +239,3 @@ namespace Textie.Core.Input
             public int y;
         }
     }
-}

@@ -1,9 +1,8 @@
 using Textie.Core.Spammer;
 
-namespace Textie.Core.Templates
+namespace Textie.Core.Templates;
+
+public interface ITemplateRenderer
 {
-    public interface ITemplateRenderer
-    {
-        string Render(string template, SpamTemplateContext context);
-    }
+    string Render(string template, SpamTemplateContext context);
 }

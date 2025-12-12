@@ -7,8 +7,7 @@ using Spectre.Console.Cli;
 using Textie.Core.Configuration;
 using Textie.Core.Spammer;
 
-namespace Textie.Core.Cli
-{
+namespace Textie.Core.Cli;
     public class RunCommand : AsyncCommand<RunCommand.Settings>
     {
         private readonly ConfigurationManager _configurationManager;
@@ -60,13 +59,14 @@ namespace Textie.Core.Cli
             }
 
             using var cts = new CancellationTokenSource();
-            Console.CancelKeyPress += (_, e) =>
+            ConsoleCancelEventHandler cancelHandler = (_, e) =>
             {
                 e.Cancel = true;
                 cts.Cancel();
                 _spammerEngine.StopSpamming();
             };
 
+            Console.CancelKeyPress += cancelHandler;
             try
             {
                 await AnsiConsole.Progress()
@@ -91,7 +91,7 @@ namespace Textie.Core.Cli
                         {
                             var result = await _spammerEngine.StartSpammingAsync(configuration, cts.Token).ConfigureAwait(false);
                             task.Value = task.MaxValue;
-                            if (result != null && result.Cancelled)
+                            if (result is { Cancelled: true })
                             {
                                 AnsiConsole.MarkupLine("[yellow]Cancelled[/]");
                             }
@@ -106,6 +106,10 @@ namespace Textie.Core.Cli
             catch (OperationCanceledException)
             {
                 AnsiConsole.MarkupLine("[yellow]Cancelled via Ctrl+C[/]");
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancelHandler;
             }
 
             return 0;
@@ -149,4 +153,3 @@ namespace Textie.Core.Cli
             public bool Preview { get; init; }
         }
     }
-}

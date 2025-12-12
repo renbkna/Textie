@@ -2,8 +2,7 @@ using System;
 using System.Text;
 using Textie.Core.Spammer;
 
-namespace Textie.Core.Templates
-{
+namespace Textie.Core.Templates;
     public class FastTemplateRenderer : ITemplateRenderer
     {
         // Simple, fast tokenizer supporting {index}, {total}, {timestamp}, {guid}, {random}
@@ -85,4 +84,3 @@ namespace Textie.Core.Templates
             }
         }
     }
-}
